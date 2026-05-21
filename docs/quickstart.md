@@ -1,89 +1,63 @@
 # 快速启动
 
-## 方式一：桌面版（推荐）
+## 方式一：桌面版（推荐，双击即用）
 
 从 [GitHub Releases](https://github.com/aqm857886159/Nomi/releases/latest) 下载安装包：
 
-- **macOS**：下载 `.dmg`，拖入 Applications，双击打开
-- **Windows**：下载 `.exe`，安装后从开始菜单启动
+| 系统 | 适用机型 | 下载 |
+|------|---------|------|
+| 🍎 macOS | Apple Silicon（M1/M2/M3/M4） | Nomi-mac-arm64.dmg |
+| 🍎 macOS | Intel 芯片 | Nomi-mac-intel.dmg |
+| 🪟 Windows | Win 10 / 11 | Nomi-windows-setup.exe |
 
-无需 Docker，无需命令行，安装即用。内置 SQLite 数据库，项目文件全部存在本地。
+无需 Docker，无需数据库，无需命令行。项目文件全部保存在本地 `文档/Nomi Projects` 目录。
+
+### macOS 首次打开提示「已损坏」？
+
+```bash
+xattr -cr /Applications/Nomi.app
+```
+
+然后再双击打开即可。
 
 ---
 
-## 方式二：开发者版（源码启动）
+## 方式二：源码启动（开发者）
 
 ### 环境要求
 
 - Node.js 20+
-- pnpm 10+
-- PostgreSQL 16+
-- Redis 7+
+- pnpm 10+（`corepack enable` 自动安装）
 
-### 安装依赖（macOS Homebrew）
-
-```bash
-brew install postgresql@16 redis
-brew services start postgresql@16
-brew services start redis
-```
-
-### Windows / Linux（Docker 方式）
-
-```bash
-docker run -d --name nomi-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
-docker run -d --name nomi-redis -p 6379:6379 redis:7
-```
-
-### 克隆并安装
+### 启动
 
 ```bash
 git clone https://github.com/aqm857886159/Nomi.git
 cd Nomi
+corepack enable
 pnpm install
+pnpm dev
 ```
 
-### 配置
+启动后会自动打开 Electron 窗口。无需任何额外服务。
+
+### 打包成安装包
 
 ```bash
-cp apps/backend/.env.example apps/backend/.env
+pnpm build   # 编译前端 + Electron 主进程
+pnpm dist    # 打包成 DMG / EXE
 ```
-
-编辑 `apps/backend/.env`：
-
-```env
-DATABASE_URL=postgresql://YOUR_USER@localhost:5432/nomi_dev
-JWT_SECRET=any-random-string
-REDIS_URL=redis://localhost:6379
-```
-
-创建数据库：
-
-```bash
-psql postgres -c "CREATE DATABASE nomi_dev;"
-```
-
-### 启动
-
-开三个终端：
-
-```bash
-# 终端 1 — API（端口 8788）
-pnpm dev:api
-
-# 终端 2 — Web（端口 5173）
-pnpm dev:web
-
-# 终端 3 — Agents（可选，AI 创作功能需要）
-pnpm dev:agents
-```
-
-打开 http://localhost:5173。
 
 ---
 
-## 添加模型
+## 启动后第一步：配模型
 
-进入 **设置 → 模型管理**，使用 AI 集成助手添加任意供应商（即梦、可灵、Runway、OpenAI 兼容接口等）。
+顶部工具栏 → **模型接入** → 添加供应商。
 
-详见 [docs/provider-integration.md](provider-integration.md)。
+推荐起步组合：
+
+- **DeepSeek**（文本 AI，用来写脚本、拆镜头）：[platform.deepseek.com](https://platform.deepseek.com)
+- **即梦**（文生图）：[volcengine.com/product/jimeng](https://www.volcengine.com/product/jimeng)
+- **可灵 / Runway**（文生视频 / 图生视频）
+
+详细接入步骤：[provider-integration.md](provider-integration.md)

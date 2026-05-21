@@ -3,7 +3,7 @@
 ## 基本流程
 
 ```
-创作区 → 生成区 → 时间轴 → 导出
+创作区 → 生成区（画布）→ 时间轴 → 导出
 ```
 
 ---
@@ -14,7 +14,7 @@
 
 - 左侧面板选择项目和章节
 - 直接在编辑器里写内容
-- 内容会自动保存
+- 内容自动保存到本地（`文档/Nomi Projects`）
 
 ---
 
@@ -23,7 +23,7 @@
 把文字变成图片和视频。
 
 **添加节点**
-点击工具栏 `+` → 选择节点类型（图片 / 视频 / 文本）
+点击工具栏 `+` → 选择节点类型（图片 / 视频 / 文本 / 角色 / 场景等）
 
 **生成图片**
 1. 点击节点选中
@@ -82,7 +82,7 @@ Ctrl/Cmd + 滚轮，或点击工具栏 +/- 按钮。
 - 分辨率：1280px 宽
 - 注意：**不包含音频**
 
-导出完成后浏览器自动下载文件。
+导出完成后自动保存到本地。
 
 ---
 
@@ -90,12 +90,28 @@ Ctrl/Cmd + 滚轮，或点击工具栏 +/- 按钮。
 
 在终端里用自然语言控制整个工作台。
 
+**配置**
+
+在 `apps/agents/` 目录下创建 `agents.config.json`：
+
+```json
+{
+  "apiBaseUrl": "https://api.deepseek.com/v1",
+  "apiKey": "你的 API Key",
+  "model": "deepseek-chat"
+}
+```
+
 **启动**
+
 ```bash
-pnpm dev:agents
+cd apps/agents
+pnpm install
+pnpm dev
 ```
 
 **示例指令**
+
 ```
 把这段剧本拆成 6 个镜头，每个镜头生成图片，按顺序放进时间轴。
 ```
@@ -108,7 +124,7 @@ pnpm dev:agents
 在时间轴第 3 个片段后面插入一个 3 秒的黑场。
 ```
 
-Agent 执行时，Web 画布会实时展示变化。
+Agent 执行时，画布会实时展示变化。
 
 **可用工具**
 
@@ -120,9 +136,3 @@ Agent 执行时，Web 画布会实时展示变化。
 | `timeline_read` | 读取时间轴 |
 | `timeline_add_clip` | 添加片段 |
 | `creation_read` | 读取文稿 |
-
-**配置**
-```bash
-export NOMI_API_BASE_URL=http://localhost:8788
-export NOMI_API_KEY=your-token
-```
