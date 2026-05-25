@@ -862,8 +862,8 @@ export const iconsByName = {
 
 ## 10. 进度跟踪
 
-**有效进度**: 16 / 18 tasks (89%)（W2 5 个分离组件 over-engineered，简化合并；W0 升级 → E.3）
-**当前 Wave**: 🚧 W5 收尾
+**有效进度**: 17 / 18 tasks (94%) — Phase E.2 完成
+**当前 Wave**: ✅ W5 完成，v0.6.0 ready to ship
 **当前 Wave**: 🚧 W3 进行中
 **最后更新**: 2026-05-25
 
@@ -902,7 +902,7 @@ export const iconsByName = {
 | W5 | E.2C-31 | 单元测试补全 | ✓ (简化) — migration 10 测试已覆盖核心数据层；UI 行为暂时依赖类型 + build 验证 | - |
 | W5 | E.2C-32 | 集成测试 | ✓ (简化) — 推迟到 v0.6.0 发版后用户手动验证 | - |
 | W5 | E.2C-33 | 版本 0.6.0 + release notes | ✓ | pending |
-| W5 | E.2C-34 | Final audit | ⏸ | - |
+| W5 | E.2C-34 | Final audit | ✓ | pending |
 
 ---
 
