@@ -7,6 +7,7 @@ import {
 } from './workbenchProjectSession'
 import type { WorkbenchProjectPayload, WorkbenchProjectRecordV1 } from './projectRecordSchema'
 import { migrateProjectRecord, type CategoryMigrationDiagnostic } from './projectCategoryMigration'
+import { migrateProjectV51ToV60 } from './projectV51ToV60Migration'
 
 let lastCategoryMigrationDiagnostic: CategoryMigrationDiagnostic | null = null
 
@@ -91,7 +92,8 @@ export function createWorkbenchProjectPersistenceService(deps: Dependencies): Wo
     clearActiveWorkbenchProjectSaveTarget()
     const mediaUpgraded = await upgradeWorkbenchProjectMediaUrls(project)
     const { record: catUpgraded, diagnostic } = migrateProjectRecord(mediaUpgraded)
-    const upgraded = catUpgraded
+    const { record: v60Upgraded } = migrateProjectV51ToV60(catUpgraded)
+    const upgraded = v60Upgraded
     const changed = upgraded !== project
     if (!diagnostic.alreadyMigrated && (diagnostic.migratedNodes > 0 || diagnostic.removedNodes > 0 || diagnostic.categoriesSeeded)) {
       lastCategoryMigrationDiagnostic = diagnostic

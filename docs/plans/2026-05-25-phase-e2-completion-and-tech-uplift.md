@@ -862,8 +862,8 @@ export const iconsByName = {
 
 ## 10. 进度跟踪
 
-**有效进度**: 4 / 23 tasks (17%)（W0 升级类整批 → Phase E.3，不计入本 Phase）
-**当前 Wave**: 🚧 W1 进行中
+**有效进度**: 5 / 23 tasks (22%)（W0 升级类整批 → Phase E.3，不计入本 Phase）
+**当前 Wave**: ✅ W1 完成，准备进 W2
 **最后更新**: 2026-05-25
 
 | Wave | Task | 主题 | 状态 | Commit |
@@ -883,7 +883,7 @@ export const iconsByName = {
 | W1 | E.2C-13 | 删除 viewType 系统 | ✓ | pending |
 | W1 | E.2C-14 | NodeRenderKind + Tabler 图标映射 | ✓ | pending |
 | W1 | E.2C-15 | Node 类型扩展（renderKind / regeneratedFrom / shotIndex）| ✓ | pending |
-| W1 | E.2C-16 | Migration v51→v60 | ⏸ | - |
+| W1 | E.2C-16 | Migration v51→v60 | ✓ | pending |
 | W2 | E.2C-17 | NodeShell 抽离 | ⏸ | - |
 | W2 | E.2C-18 | ShotFrameNode | ⏸ | - |
 | W2 | E.2C-19 | CharacterCardNode | ⏸ | - |
