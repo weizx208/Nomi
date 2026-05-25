@@ -1,6 +1,7 @@
 import React from 'react'
 import { cn } from '../../utils/cn'
-import { BUILTIN_CATEGORIES, type ProjectCategory } from '../project/projectCategories'
+import { BUILTIN_CATEGORIES, getBuiltinCategoryById, type ProjectCategory } from '../project/projectCategories'
+import { showUndoToast } from '../feedback/showUndoToast'
 import { useWorkbenchStore } from '../workbenchStore'
 import { useGenerationCanvasStore } from '../generationCanvasV2/store/generationCanvasStore'
 import CategoryItem from './CategoryItem'
@@ -151,8 +152,16 @@ export default function CategorySidebar({ categories }: Props): JSX.Element {
       removeNodeFromGroup(nodeId)
       return
     }
-    copyNodeToCategory(nodeId, categoryId)
-  }, [copyNodeToCategory, nodeById, removeNodeFromGroup])
+    // E.2C-26: 跨分类拖拽 → 创建独立副本 + 5 秒可撤销 toast
+    const copied = copyNodeToCategory(nodeId, categoryId)
+    if (copied) {
+      const targetName = getBuiltinCategoryById(categoryId)?.name || categoryId
+      showUndoToast({
+        message: `已复制到 ${targetName}`,
+        onUndo: () => deleteNode(copied.id),
+      })
+    }
+  }, [copyNodeToCategory, deleteNode, nodeById, removeNodeFromGroup])
 
   const handleDropNodeOnGroup = React.useCallback((nodeId: string, groupId: string) => {
     const node = nodeById.get(nodeId)
@@ -162,9 +171,17 @@ export default function CategorySidebar({ categories }: Props): JSX.Element {
       moveNodeToGroup(nodeId, groupId)
       return
     }
+    // E.2C-26: 跨分类拖到子组 → 创建独立副本 + 加入组 + 5 秒可撤销 toast
     const copied = copyNodeToCategory(nodeId, group.categoryId)
-    if (copied) moveNodeToGroup(copied.id, groupId)
-  }, [copyNodeToCategory, groups, moveNodeToGroup, nodeById])
+    if (copied) {
+      moveNodeToGroup(copied.id, groupId)
+      const targetName = getBuiltinCategoryById(group.categoryId)?.name || group.categoryId
+      showUndoToast({
+        message: `已复制到 ${targetName} · ${group.name}`,
+        onUndo: () => deleteNode(copied.id),
+      })
+    }
+  }, [copyNodeToCategory, deleteNode, groups, moveNodeToGroup, nodeById])
 
   const handleCreateGroup = React.useCallback((categoryId: string) => {
     const name = window.prompt('子组名称', '新建子组')
