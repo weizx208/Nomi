@@ -194,6 +194,7 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   )
   const selectedNodeIds = useGenerationCanvasStore((state) => state.selectedNodeIds)
   const addNode = useGenerationCanvasStore((state) => state.addNode)
+  const updateNode = useGenerationCanvasStore((state) => state.updateNode)
   const clearSelection = useGenerationCanvasStore((state) => state.clearSelection)
   const setCanvasZoom = useGenerationCanvasStore((state) => state.setCanvasZoom)
   const deleteSelectedNodes = useGenerationCanvasStore((state) => state.deleteSelectedNodes)
@@ -1095,16 +1096,52 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
               </div>
             ) : null}
           </div>
-          {nodes.length === 0 ? (
-            <div className={cn(
-              'absolute top-[48%] left-1/2 grid gap-[6px]',
-              'text-workbench-muted text-[13px] text-center',
-              '-translate-x-1/2 -translate-y-1/2',
-            )}>
-              <strong>开始搭建生成链路</strong>
-              <span>添加文本、角色、图片或视频节点。</span>
-            </div>
-          ) : null}
+          {/* E.2C-24: 空状态 CTA（spec 决策 4）— 分类感知的引导按钮 */}
+          {nodes.length === 0 ? (() => {
+            const categoryNameById: Record<string, string> = {
+              shots: '画面',
+              cast: '角色',
+              scene: '场景',
+              prop: '道具',
+              audio: '声音',
+            }
+            const activeCategoryName = categoryNameById[activeCategoryId] || '节点'
+            const handleEmptyCtaClick = () => {
+              // 默认创建 image kind 节点（声音分类暂用 image 占位，audio kind 待 future iteration）
+              const newNode = addNode({
+                kind: 'image',
+                position: { x: 240, y: 240 },
+                select: true,
+              })
+              if (newNode && activeCategoryId) {
+                updateNode(newNode.id, { categoryId: activeCategoryId })
+              }
+            }
+            return (
+              <div className={cn(
+                'absolute top-[44%] left-1/2 grid gap-3 place-items-center',
+                'text-workbench-muted text-[13px] text-center',
+                '-translate-x-1/2 -translate-y-1/2',
+              )}>
+                <strong className="text-[14px] text-nomi-ink">这里还没有{activeCategoryName}</strong>
+                <span className="text-[12px] text-nomi-ink-60 max-w-[300px]">
+                  添加第一个节点开始创作，之后可以拖动、分组、跨分类复制。
+                </span>
+                <WorkbenchButton
+                  className={cn(
+                    'mt-2 inline-flex items-center gap-1.5 min-h-[28px] px-4',
+                    'rounded-full border-0 bg-nomi-ink text-nomi-paper',
+                    'font-[inherit] text-[12px] font-medium',
+                    'hover:enabled:bg-nomi-accent',
+                  )}
+                  aria-label={`新建一个${activeCategoryName}节点`}
+                  onClick={handleEmptyCtaClick}
+                >
+                  + 新建{activeCategoryName}
+                </WorkbenchButton>
+              </div>
+            )
+          })() : null}
           {selectionBox ? (
             <div
               className={cn(
