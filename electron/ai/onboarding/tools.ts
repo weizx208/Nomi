@@ -35,6 +35,16 @@ export type ToolHooks = {
   allowedDomain?: () => string | undefined;
 };
 
+// ---- Per-session in-memory cache for fetch_raw_docs (M4.2) ----
+// Same URL fetched twice in one trial returns cached result + cached:true flag.
+// Cleared when trial ends (process tear-down or via clearFetchCache).
+const __fetchCache = new Map<string, unknown>(); // key = `${sessionId}|${url}`
+export function clearFetchCache(sessionId: string) {
+  for (const k of Array.from(__fetchCache.keys())) {
+    if (k.startsWith(sessionId + "|")) __fetchCache.delete(k);
+  }
+}
+
 // ---- Result helpers ----
 
 type ToolOk<T> = { ok: true; value: T };
@@ -82,6 +92,14 @@ export function buildOnboardingTools(hooks: ToolHooks) {
         url: z.string().url(),
       }),
       execute: async ({ url }: { url: string }): Promise<ToolResult<unknown>> => {
+        // M4.2: same-trial URL cache. Saves a full doc roundtrip if agent re-fetches.
+        const cacheKey = `${sessionId}|${url}`;
+        const cached = __fetchCache.get(cacheKey);
+        if (cached) {
+          const result = { ...(cached as Record<string, unknown>), cached: true };
+          hooks.onToolCall?.({ tool: "fetch_raw_docs", args: { url }, result });
+          return ok(result);
+        }
         try {
           const fetched = await hardenedFetchText(url, {
             timeoutMs: 20_000,
@@ -109,6 +127,7 @@ export function buildOnboardingTools(hooks: ToolHooks) {
             markdown_excerpt: markdown.slice(0, 30_000),  // first 30k chars
             markdown_truncated: markdown.length > 30_000,
           };
+          __fetchCache.set(cacheKey, result); // M4.2
           hooks.onToolCall?.({ tool: "fetch_raw_docs", args: { url }, result });
           return ok(result);
         } catch (e) {
@@ -120,90 +139,104 @@ export function buildOnboardingTools(hooks: ToolHooks) {
     }),
 
     // -----------------------------------------------------------
-    // 2. set_vendor_baseurl
+    // 2. set_vendor_info  -  M4.3: merged baseUrl + auth + identity
     // -----------------------------------------------------------
-    set_vendor_baseurl: tool({
+    set_vendor_info: tool({
       description:
-        "Set the base URL for the API vendor. Must be a fully qualified https:// URL. " +
-        "Call this after you've identified the API endpoint from the docs.",
+        "Set vendor + model identity + auth in one call. Always prefer this over multiple calls. " +
+        "auth.type: 'bearer' (Authorization: Bearer KEY) / 'x-api-key' (custom header) / 'query' (URL param). " +
+        "providerKind is optional, only when this is an OpenAI-compat or Anthropic-style API.",
       parameters: z.object({
         baseUrl: z.string().url(),
-        vendorKey: z.string().min(1).describe("Short identifier for this vendor, e.g. 'piapi', 'chatfire'"),
-        vendorName: z.string().min(1).describe("Human-readable name, e.g. 'PiAPI'"),
+        vendorKey: z.string().min(1).describe("Short id, e.g. 'piapi', 'kie'"),
+        vendorName: z.string().min(1).describe("Human-readable, e.g. 'PiAPI'"),
+        modelKey: z.string().min(1).describe("Exact model id the server expects, e.g. 'kling-v2.1'"),
+        modelDisplayName: z.string().min(1).describe("Human label, e.g. 'Kling 2.1'"),
+        auth: z.object({
+          type: z.enum(["bearer", "x-api-key", "query"]),
+          headerName: z.string().optional().describe("Required if type='x-api-key'"),
+          queryParam: z.string().optional().describe("Required if type='query'"),
+        }),
+        providerKind: z.enum(["openai-compatible", "anthropic"]).optional(),
       }),
-      execute: async ({ baseUrl, vendorKey, vendorName }) => {
-        const draft = draftStore.patch(sessionId, {
+      execute: async ({ baseUrl, vendorKey, vendorName, modelKey, modelDisplayName, auth, providerKind }) => {
+        const a: { type: AuthType; headerName?: string; queryParam?: string } = { type: auth.type };
+        if (auth.type === "x-api-key") {
+          if (!auth.headerName) return err("auth.headerName required for x-api-key");
+          a.headerName = auth.headerName;
+        }
+        if (auth.type === "query") {
+          if (!auth.queryParam) return err("auth.queryParam required for query auth");
+          a.queryParam = auth.queryParam;
+        }
+        draftStore.patch(sessionId, {
           vendorBaseUrl: baseUrl.replace(/\/+$/, ""),
           vendorKey,
           vendorName,
-        });
-        const result = ok({ baseUrl: draft.vendorBaseUrl, vendorKey, vendorName });
-        hooks.onToolCall?.({ tool: "set_vendor_baseurl", args: { baseUrl, vendorKey, vendorName }, result });
-        return result;
-      },
-    }),
-
-    // -----------------------------------------------------------
-    // 3. set_vendor_auth
-    // -----------------------------------------------------------
-    set_vendor_auth: tool({
-      description:
-        "Set how requests are authenticated. " +
-        "'bearer' = 'Authorization: Bearer <key>'; " +
-        "'x-api-key' = custom header (specify headerName); " +
-        "'query' = key passed as URL query param (specify queryParam name).",
-      parameters: z.object({
-        type: z.enum(["bearer", "x-api-key", "query"]),
-        headerName: z.string().optional().describe("Custom header name for x-api-key type"),
-        queryParam: z.string().optional().describe("Query param name for query type"),
-        providerKind: z.enum(["openai-compatible", "anthropic"]).optional().describe("If this vendor is OpenAI-compat or Anthropic"),
-      }),
-      execute: async ({ type, headerName, queryParam, providerKind }) => {
-        const auth: { type: AuthType; headerName?: string; queryParam?: string } = { type };
-        if (type === "x-api-key") {
-          if (!headerName) return err("headerName required for x-api-key auth");
-          auth.headerName = headerName;
-        }
-        if (type === "query") {
-          if (!queryParam) return err("queryParam required for query auth");
-          auth.queryParam = queryParam;
-        }
-        draftStore.patch(sessionId, {
-          vendorAuth: auth,
+          modelKey,
+          modelDisplayName,
+          vendorAuth: a,
           ...(providerKind ? { vendorProviderKind: providerKind as ProviderKind } : {}),
         });
-        const result = ok({ auth, providerKind });
-        hooks.onToolCall?.({ tool: "set_vendor_auth", args: { type, headerName, queryParam }, result });
+        const result = ok({ baseUrl, vendorKey, modelKey, auth: a, providerKind });
+        hooks.onToolCall?.({ tool: "set_vendor_info", args: { baseUrl, vendorKey, vendorName, modelKey, modelDisplayName, auth, providerKind }, result });
         return result;
       },
     }),
 
     // -----------------------------------------------------------
-    // 4. set_model_identity
+    // 5a. set_fields  -  M4.1: BATCH version, ALWAYS prefer this
     // -----------------------------------------------------------
-    set_model_identity: tool({
+    set_fields: tool({
       description:
-        "Set the model's identity: its key (sent to the server) and a display name.",
+        "Add MULTIPLE parameter fields in one call (always prefer this over calling add_field_with_evidence repeatedly). " +
+        "Each field still requires evidence: >=20 chars of actual doc text + evidence_location. " +
+        "If you have 3 fields to add, make ONE set_fields call, not 3 add_field calls.",
       parameters: z.object({
-        modelKey: z.string().min(1).describe("The exact model id the server expects, e.g. 'kling-v2.1', 'sora-2'"),
-        displayName: z.string().min(1).describe("Human label, e.g. 'Kling 2.1', 'Sora 2'"),
+        fields: z.array(z.object({
+          key: z.string().min(1),
+          displayName: z.string().min(1),
+          type: ParamControlSchema,
+          options: z.array(ParamOptionSchema).optional(),
+          default: z.string().optional(),
+          evidence: EvidenceSchema,
+        })).min(1),
       }),
-      execute: async ({ modelKey, displayName }) => {
-        draftStore.patch(sessionId, { modelKey, modelDisplayName: displayName });
-        const result = ok({ modelKey, displayName });
-        hooks.onToolCall?.({ tool: "set_model_identity", args: { modelKey, displayName }, result });
+      execute: async ({ fields }) => {
+        const added: string[] = [];
+        const errors: string[] = [];
+        for (const p of fields) {
+          if (p.key !== p.evidence.field) {
+            errors.push(`'${p.key}': evidence.field mismatch (got '${p.evidence.field}')`);
+            continue;
+          }
+          const field: FieldDefinition = {
+            key: p.key,
+            displayName: p.displayName,
+            type: p.type,
+            ...(p.options ? { options: p.options } : {}),
+            ...(p.default !== undefined ? { default: p.default } : {}),
+            evidence: p.evidence as FieldEvidence,
+          };
+          draftStore.upsertField(sessionId, field);
+          added.push(p.key);
+        }
+        const result = errors.length === 0
+          ? ok({ added, totalFields: draftStore.get(sessionId).modelFields.length })
+          : ok({ added, errors, totalFields: draftStore.get(sessionId).modelFields.length });
+        hooks.onToolCall?.({ tool: "set_fields", args: { fields }, result });
         return result;
       },
     }),
 
     // -----------------------------------------------------------
-    // 5. add_field_with_evidence   -  HARD-ENFORCED EVIDENCE
+    // 5b. add_field_with_evidence   -  single-field fallback, prefer set_fields
     // -----------------------------------------------------------
     add_field_with_evidence: tool({
       description:
-        "Add a parameter field to this model, with MANDATORY evidence quoting the doc. " +
-        "Evidence must be >=20 chars of the actual doc text. evidence_location must say where (e.g. 'parameter table row 3', 'curl example line 2'). " +
-        "If you can't cite evidence, you can't add the field. Better to omit a field than fabricate it.",
+        "DEPRECATED — prefer set_fields(fields: [...]) which adds many fields in one call. " +
+        "Use this only when adding exactly one missing field after batch. " +
+        "Evidence must be >=20 chars; evidence_location is required.",
       parameters: z.object({
         key: z.string().min(1).describe("Field name as the server expects, e.g. 'duration', 'aspect_ratio'"),
         displayName: z.string().min(1),

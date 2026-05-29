@@ -11,7 +11,7 @@
 import { generateText } from "ai";
 import { buildAiSdkModel } from "../buildAiSdkModel";
 import { sanitizeForBroadCompat } from "../promptSanitize";
-import { buildOnboardingTools } from "./tools";
+import { buildOnboardingTools, clearFetchCache } from "./tools";
 import { buildSystemPrompt } from "./systemPrompt";
 import { draftStore } from "./draft";
 import type { ModelKind, ProviderKind, TrialEvent, TrialOutcome } from "./types";
@@ -197,6 +197,7 @@ export async function runOnboardingTrial(input: OnboardingAgentInput): Promise<T
 
   // cleanup
   draftStore.delete(sessionId);
+  clearFetchCache(sessionId);
 
   return outcome;
 }

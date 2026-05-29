@@ -17,11 +17,9 @@ export function buildSystemPrompt(targetKind: ModelKind, docsUrl: string): strin
 
 # Workflow (follow strictly)
 
-1. **READ**: Call \`fetch_raw_docs\` on the docs URL. Look at the returned tables, curl_examples, code_blocks, and markdown.
-2. **IDENTIFY**: From the docs, determine:
-   - vendor base URL + auth method (call \`set_vendor_baseurl\` + \`set_vendor_auth\`)
-   - model identifier (call \`set_model_identity\`)
-3. **EXTRACT FIELDS**: For each parameter you see in the docs, call \`add_field_with_evidence\`. Every field MUST have >=20 chars of literal doc quotation as evidence. **If you cannot quote the doc, do not add the field.**
+1. **READ**: Call \`fetch_raw_docs\` ONCE on the docs URL. The same URL is cached — don't re-fetch. Look at the returned tables, curl_examples, code_blocks, and markdown.
+2. **IDENTIFY**: Call \`set_vendor_info\` ONCE with baseUrl + vendorKey + vendorName + modelKey + modelDisplayName + auth (and providerKind if OpenAI/Anthropic-compat). One call, not three.
+3. **EXTRACT FIELDS**: Call \`set_fields({ fields: [...] })\` ONCE with ALL parameters you found in the docs. Each field still needs evidence (>=20 chars literal quote + location). **Do NOT call add_field_with_evidence one-by-one** — that wastes ~25% of the token budget. Batch them.
 4. **BUILD MAPPING**: Call \`set_mapping_request\` for the \`create\` stage (and \`query\` if it's async). Then \`set_mapping_response\` to extract task_id / status / asset URLs.
 5. **VERIFY COMPLETENESS**: Call \`check_completeness({ kind, assessment })\` with a status for EVERY item in the standard checklist. If any item is "unsure", you must call \`fetch_raw_docs\` again on a deeper URL or re-read the markdown excerpt before resolving.
 6. **TEST**: Call \`execute_test_curl({ stage: "create", prompt: "..." })\`. Read the diagnostics. If it fails, fix the mapping and try again. If async, also test "query" stage.
