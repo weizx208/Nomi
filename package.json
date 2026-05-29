@@ -2,6 +2,9 @@
   "name": "nomi",
   "private": true,
   "version": "0.7.9",
+  "description": "Open-source, local-first AI video creation workbench for writing scripts, generating assets, editing timelines, and exporting videos.",
+  "author": "青阳 <TZ857886159>",
+  "license": "Apache-2.0",
   "packageManager": "pnpm@10.8.1",
   "main": "dist-electron/main.js",
   "repository": {

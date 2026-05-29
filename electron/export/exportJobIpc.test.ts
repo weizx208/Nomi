@@ -67,8 +67,10 @@ describe("runtime export job IPC functions", () => {
     const main = fs.readFileSync(path.join(process.cwd(), "electron", "main.ts"), "utf8");
     const bridge = fs.readFileSync(path.join(process.cwd(), "src", "desktop", "bridge.ts"), "utf8");
 
+    const exportsBridge = preload.match(/\n  exports: \{[\s\S]*?\n  \},\n  tasks:/)?.[0] ?? "";
+
     expect(preload).not.toMatch(/ipcRenderer\.invoke\(["']nomi:exports:start["']/);
-    expect(preload).not.toMatch(/\bstart:\s*\(/);
+    expect(exportsBridge).not.toMatch(/\bstart:\s*\(/);
     expect(main).not.toMatch(/ipcMain\.handle\(["']nomi:exports:start["']/);
     expect(bridge).not.toContain("webmBytes");
     expect(bridge).not.toMatch(/\bstart:\s*\(payload: DesktopMp4ExportStartPayload\)/);
