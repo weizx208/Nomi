@@ -18,7 +18,6 @@ import { requestStoryboardPlanning } from './generationCanvasV2/agent/storyboard
 import { consumeCategoryMigrationDiagnostic, createWorkbenchProjectPersistenceService } from './project/projectPersistenceService'
 import { readCurrentWorkbenchProjectPayload } from './project/workbenchProjectSession'
 import { useWorkspaceEvents } from './useWorkspaceEvents'
-import { DesignDrawer } from '../design'
 import { cn } from '../utils/cn'
 import { toast } from '../ui/toast'
 import { setDesktopActiveProjectId } from '../desktop/activeProject'
@@ -259,17 +258,11 @@ export default function NomiStudioApp(): JSX.Element {
         onOpenModelCatalog={() => setModelCatalogOpened(true)}
         onRenameProject={handleRenameProject}
       />
-      <DesignDrawer
-        className={cn('nomi-model-catalog-drawer')}
+      <OnboardingWizard
         opened={modelCatalogOpened}
         onClose={() => setModelCatalogOpened(false)}
-        position="right"
-        size={560}
-        zIndex={4000}
-        withinPortal
-      >
-        <OnboardingWizard onCommitted={() => notifyModelOptionsRefresh('all')} />
-      </DesignDrawer>
+        onCommitted={() => notifyModelOptionsRefresh('all')}
+      />
       <ToastHost />
     </div>
   )

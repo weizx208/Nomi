@@ -1,7 +1,7 @@
 import React from 'react'
 import { IconCopy, IconGripVertical, IconGrid3x3, IconInfoCircle, IconLayoutGrid, IconMaximize, IconUpload } from '@tabler/icons-react'
 import ProvenancePanel from './ProvenancePanel'
-import TitlePill from './TitlePill'
+import { ErrorBadge } from './ErrorBadge'
 import { getBuiltinCategoryById } from '../../project/projectCategories'
 import CharacterCardNode from './render/CharacterCardNode'
 import SceneCardNode from './render/SceneCardNode'
@@ -11,7 +11,6 @@ import { cn } from '../../../utils/cn'
 import type { GenerationCanvasNode } from '../model/generationCanvasTypes'
 import { useWorkbenchStore } from '../../workbenchStore'
 import { useGenerationCanvasStore } from '../store/generationCanvasStore'
-import { useShotIndex } from '../hooks/useNodeRelationships'
 import {
   encodeTimelineGenerationNodeDragPayload,
   TIMELINE_GENERATION_NODE_DRAG_MIME,
@@ -595,16 +594,6 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
   const canSendToTimeline = canDragGenerationNodeToTimeline(node, { readOnly })
   const showStatusBadge = status === 'queued' || status === 'running' || status === 'error'
   const composerLayout = floatingComposerLayout(visualSize.width, visualSize.height, node.kind)
-  // v0.7.2 perf: shots 编号走 WeakMap 缓存 hook，从 O(n log n) × 每节点每变化 → O(1) 查询
-  const liveShotIndexForPlaceholder = useShotIndex(node.id, node.categoryId)
-  const placeholderCategoryName = node.categoryId
-    ? getBuiltinCategoryById(node.categoryId)?.name
-    : null
-  const placeholderLabel = placeholderCategoryName
-    ? node.categoryId === 'shots' && typeof liveShotIndexForPlaceholder === 'number'
-      ? `${placeholderCategoryName} ${String(liveShotIndexForPlaceholder).padStart(2, '0')}`
-      : placeholderCategoryName
-    : null
 
   // v0.7.2 perf: 用 primitive 订阅 sourceNodeTitle / categoryId / exists 重组 label
   const sourceNodeLabel = sourceNodeTitle || (node.derivedFrom && !sourceNodeExists ? '源节点已不在当前项目' : (node.derivedFrom || ''))
@@ -914,7 +903,6 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
         'flex items-center justify-start gap-2 min-h-0 p-0',
         'pointer-events-auto cursor-grab',
       )}>
-        <TitlePill node={node} />
         {showStatusBadge ? (
           <span
             className={cn(
@@ -1067,19 +1055,10 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
             />
           )
         ) : (
-          // E.2C-28 占位态：分类名 + 编号（live 计算） + "等待生成"
-          // 背景斜条纹已在外层 preview div 的 className 里。
-          // 选中时隐藏文字让用户专注于 composer。
-          <div className={cn('flex w-full h-full items-center justify-center flex-col gap-1.5 pointer-events-none')}>
+          // v0.8: 占位态只剩"等待生成"，去掉"分镜 NN"标签（用户靠位置识别）
+          <div className={cn('flex w-full h-full items-center justify-center pointer-events-none')}>
             {selected ? null : (
-              <>
-                {placeholderLabel ? (
-                  <span className="text-[13px] font-medium text-nomi-ink-60 tabular-nums">
-                    {placeholderLabel}
-                  </span>
-                ) : null}
-                <span className="text-[11px] text-nomi-ink-40">等待生成</span>
-              </>
+              <span className="text-[11px] text-nomi-ink-40">等待生成</span>
             )}
           </div>
         )}
@@ -1170,18 +1149,10 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
                 onChange={(event) => updateNode(node.id, { prompt: event.currentTarget.value })}
                 onBlur={() => { void persistActiveWorkbenchProjectNow().catch(() => {}) }}
               />
-              {status === 'error' && node.error ? (
-                <div
-                  className={cn(
-                    'py-[7px] px-[9px] rounded-nomi-sm',
-                    'bg-workbench-danger-soft text-workbench-danger text-[11.5px] leading-[1.35]',
-                  )}
-                  role="alert"
-                >
-                  生成失败：{node.error}
-                </div>
-              ) : null}
               <div className={cn('flex items-center gap-1 mt-auto min-w-0 pt-1')}>
+                {status === 'error' && node.error ? (
+                  <ErrorBadge message={node.error} />
+                ) : null}
                 <NodeParameterControls node={node} section="parameters" valueOnly />
                 {(() => {
                   const disabledReason = !canGenerate && !isGenerating

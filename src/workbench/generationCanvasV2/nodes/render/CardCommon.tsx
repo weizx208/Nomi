@@ -87,7 +87,6 @@ export function UploadFallback({
       )}
     >
       <span className="text-[13px] font-medium tabular-nums pointer-events-none">+ 上传{label}</span>
-      <span className="text-[11px] text-nomi-ink-40 pointer-events-none">或选中后输入提示词生成</span>
       <input className="hidden" type="file" accept={accept} onChange={handleChange} />
     </label>
   )

@@ -16,7 +16,7 @@ export function createDefaultGenerationCanvasSnapshot(): GenerationCanvasSnapsho
     title: '关键画面',
     x: 440,
     y: 380,
-    prompt: '承接上游提示词生成图片。',
+    prompt: '',
   })
   return {
     nodes: [textNode, imageNode],
