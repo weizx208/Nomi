@@ -221,6 +221,7 @@ export function buildCreationAiPrompt(input: {
     documentText ? `当前创作文稿：\n${documentText}` : '当前创作文稿：空',
     '',
     '输出要求：',
+    '始终用与用户相同的语言输出：用户用中文就用中文，用英文就用英文。永远不要因为本提示词是中文就固定用中文回复。',
     '内容必须具体可用于视频创作；如果返回 JSON，content 内只放最终正文，不写使用说明。',
   ].join('\n')
 }
