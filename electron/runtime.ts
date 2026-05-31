@@ -1924,7 +1924,18 @@ function extractAssetUrl(raw: unknown): string {
 function extractTaskId(raw: unknown): string {
   if (!raw || typeof raw !== "object") return "";
   const record = raw as JsonRecord;
-  return firstString(record.id, record.taskId, record.task_id, (record.data as JsonRecord | undefined)?.id);
+  const data = record.data as JsonRecord | undefined;
+  // Async job APIs commonly wrap the id in a `data` envelope (kie: data.taskId).
+  // Probe both the top level and one level into `data` so the create response's
+  // task id is captured even when no response_mapping is configured.
+  return firstString(
+    record.id,
+    record.taskId,
+    record.task_id,
+    data?.id,
+    data?.taskId,
+    data?.task_id,
+  );
 }
 
 async function postJson(url: string, apiKey: string, vendor: Vendor, body: unknown): Promise<unknown> {
