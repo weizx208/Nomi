@@ -1,12 +1,14 @@
 import React from 'react'
-import { IconCopy, IconCrop, IconFlipHorizontal, IconFlipVertical, IconGripVertical, IconGrid3x3, IconInfoCircle, IconLayoutGrid, IconMaximize, IconRotate2, IconRotateClockwise2, IconUpload } from '@tabler/icons-react'
+import { IconCopy, IconGripVertical, IconInfoCircle, IconLayoutGrid, IconMaximize, IconUpload } from '@tabler/icons-react'
 import ProvenancePanel from './ProvenancePanel'
 import { getBuiltinCategoryById } from '../../project/projectCategories'
 import CharacterCardNode from './render/CharacterCardNode'
 import SceneCardNode from './render/SceneCardNode'
 import PropCardNode from './render/PropCardNode'
 import AudioStripNode from './render/AudioStripNode'
-import ImageCropOverlay, { type CropRect } from './render/ImageCropOverlay'
+import ImageCropOverlay from './render/ImageCropOverlay'
+import NodeImageEditToolbar from './NodeImageEditToolbar'
+import { useNodeImageEditing } from './useNodeImageEditing'
 import { cn } from '../../../utils/cn'
 import type { GenerationCanvasNode } from '../model/generationCanvasTypes'
 import { useWorkbenchStore } from '../../workbenchStore'
@@ -44,15 +46,6 @@ export type BaseGenerationNodeProps = {
 }
 
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
-type ImageGridSize = 2 | 3
-
-type ImageGridTile = {
-  dataUrl: string
-  width: number
-  height: number
-  row: number
-  column: number
-}
 
 const RESIZE_DIRECTIONS: ResizeDirection[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
 const MIN_NODE_WIDTH = 240
@@ -87,126 +80,6 @@ function mediaNodeSize(width: number, height: number, preferredWidth?: number): 
     height: previewHeight,
     previewHeight,
   }
-}
-
-function imageGridTileNodeSize(width: number, height: number, preferredWidth: number): { width: number; height: number; previewHeight: number } | null {
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
-  const aspectRatio = width / height
-  const nodeWidth = clampNumber(preferredWidth, MIN_NODE_WIDTH, MAX_NODE_WIDTH)
-  const previewHeight = Math.max(1, Math.round(nodeWidth / aspectRatio))
-  return {
-    width: nodeWidth,
-    height: previewHeight,
-    previewHeight,
-  }
-}
-
-function loadImageForCanvas(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('Unable to load image.'))
-    if (!url.startsWith('data:') && !url.startsWith('blob:')) {
-      image.crossOrigin = 'anonymous'
-    }
-    image.src = url
-  })
-}
-
-async function splitImageIntoGrid(url: string, gridSize: ImageGridSize): Promise<ImageGridTile[]> {
-  if (typeof document === 'undefined') return []
-  const image = await loadImageForCanvas(url)
-  const imageWidth = image.naturalWidth || image.width
-  const imageHeight = image.naturalHeight || image.height
-  if (!imageWidth || !imageHeight) return []
-
-  const sourceTileWidth = imageWidth / gridSize
-  const sourceTileHeight = imageHeight / gridSize
-  const outputTileWidth = Math.max(1, Math.round(sourceTileWidth))
-  const outputTileHeight = Math.max(1, Math.round(sourceTileHeight))
-  const tiles: ImageGridTile[] = []
-  for (let row = 0; row < gridSize; row += 1) {
-    const sourceY = row * sourceTileHeight
-    for (let column = 0; column < gridSize; column += 1) {
-      const sourceX = column * sourceTileWidth
-      const canvas = document.createElement('canvas')
-      canvas.width = outputTileWidth
-      canvas.height = outputTileHeight
-      const context = canvas.getContext('2d')
-      if (!context) continue
-      context.drawImage(image, sourceX, sourceY, sourceTileWidth, sourceTileHeight, 0, 0, outputTileWidth, outputTileHeight)
-      tiles.push({
-        dataUrl: canvas.toDataURL('image/png'),
-        width: outputTileWidth,
-        height: outputTileHeight,
-        row,
-        column,
-      })
-    }
-  }
-  return tiles
-}
-
-async function cropImageRegion(
-  url: string,
-  rect: { x: number; y: number; w: number; h: number },
-): Promise<{ dataUrl: string; width: number; height: number } | null> {
-  if (typeof document === 'undefined') return null
-  const image = await loadImageForCanvas(url)
-  const imageWidth = image.naturalWidth || image.width
-  const imageHeight = image.naturalHeight || image.height
-  if (!imageWidth || !imageHeight) return null
-  const sx = clampNumber(Math.round(rect.x * imageWidth), 0, imageWidth - 1)
-  const sy = clampNumber(Math.round(rect.y * imageHeight), 0, imageHeight - 1)
-  const sw = clampNumber(Math.round(rect.w * imageWidth), 1, imageWidth - sx)
-  const sh = clampNumber(Math.round(rect.h * imageHeight), 1, imageHeight - sy)
-  const canvas = document.createElement('canvas')
-  canvas.width = sw
-  canvas.height = sh
-  const context = canvas.getContext('2d')
-  if (!context) return null
-  context.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh)
-  return { dataUrl: canvas.toDataURL('image/png'), width: sw, height: sh }
-}
-
-type ImageTransformOp = 'rotate-left' | 'rotate-right' | 'flip-h' | 'flip-v'
-
-const IMAGE_TRANSFORM_LABEL: Record<ImageTransformOp, string> = {
-  'rotate-left': '向左旋转 90°',
-  'rotate-right': '向右旋转 90°',
-  'flip-h': '水平翻转',
-  'flip-v': '垂直翻转',
-}
-
-async function transformImage(
-  url: string,
-  op: ImageTransformOp,
-): Promise<{ dataUrl: string; width: number; height: number } | null> {
-  if (typeof document === 'undefined') return null
-  const image = await loadImageForCanvas(url)
-  const imageWidth = image.naturalWidth || image.width
-  const imageHeight = image.naturalHeight || image.height
-  if (!imageWidth || !imageHeight) return null
-  const rotated = op === 'rotate-left' || op === 'rotate-right'
-  const canvas = document.createElement('canvas')
-  canvas.width = rotated ? imageHeight : imageWidth
-  canvas.height = rotated ? imageWidth : imageHeight
-  const context = canvas.getContext('2d')
-  if (!context) return null
-  if (op === 'rotate-left' || op === 'rotate-right') {
-    context.translate(canvas.width / 2, canvas.height / 2)
-    context.rotate(op === 'rotate-right' ? Math.PI / 2 : -Math.PI / 2)
-    context.drawImage(image, -imageWidth / 2, -imageHeight / 2)
-  } else if (op === 'flip-h') {
-    context.translate(imageWidth, 0)
-    context.scale(-1, 1)
-    context.drawImage(image, 0, 0)
-  } else {
-    context.translate(0, imageHeight)
-    context.scale(1, -1)
-    context.drawImage(image, 0, 0)
-  }
-  return { dataUrl: canvas.toDataURL('image/png'), width: canvas.width, height: canvas.height }
 }
 
 function findTimelineDropTarget(clientX: number, clientY: number): HTMLElement | null {
@@ -260,9 +133,6 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
   const canvasZoom = useGenerationCanvasStore((state) => state.canvasZoom)
   const panoramaFullscreenRef = React.useRef<(() => void) | null>(null)
   const panoramaFourViewRef = React.useRef<(() => void) | null>(null)
-  const [splittingGridSize, setSplittingGridSize] = React.useState<ImageGridSize | null>(null)
-  const [cropMode, setCropMode] = React.useState(false)
-  const [imageOpBusy, setImageOpBusy] = React.useState(false)
   // E11: provenance viewer open state (mounted into node header for AI-generated assets)
   const [provenanceOpen, setProvenanceOpen] = React.useState(false)
   const dragStartRef = React.useRef<{
@@ -685,201 +555,9 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
     storeConnectNodes(node.id, screenshotNode.id, 'reference')
   }, [addNode, node.id, node.position.x, node.position.y, storeConnectNodes, updateNode, visualSize.width])
 
-  const handleImageGridSplit = React.useCallback(async (gridSize: ImageGridSize) => {
-    const imageUrl = node.result?.type === 'image' ? node.result.url : undefined
-    if (!imageUrl || splittingGridSize !== null) return
-
-    setSplittingGridSize(gridSize)
-    try {
-      const tiles = await splitImageIntoGrid(imageUrl, gridSize)
-      if (tiles.length !== gridSize * gridSize) return
-      const createdAt = Date.now()
-      const gap = 42
-      const preferredTileWidth = Math.max(MIN_NODE_WIDTH, Math.round(visualSize.width / gridSize))
-      const firstTileSize = imageGridTileNodeSize(tiles[0]?.width || 1, tiles[0]?.height || 1, preferredTileWidth)
-      const layoutWidth = firstTileSize?.width || 240
-      const layoutHeight = firstTileSize?.previewHeight || 180
-      const baseX = Math.round(node.position.x + visualSize.width + 80)
-      const baseY = Math.round(node.position.y)
-
-      tiles.forEach((tile, index) => {
-        const tileSize = imageGridTileNodeSize(tile.width, tile.height, layoutWidth)
-        const tileNode = addNode({
-          kind: 'image',
-          title: `${node.title || '图片'} ${gridSize}x${gridSize} 切片 ${index + 1}`,
-          prompt: `${gridSize}x${gridSize} 图片切片 ${tile.row + 1}-${tile.column + 1}`,
-          position: {
-            x: baseX + tile.column * (layoutWidth + gap),
-            y: baseY + tile.row * (layoutHeight + gap),
-          },
-          select: false,
-        })
-        const result = {
-          id: `image-split-${tileNode.id}-${createdAt}-${index}`,
-          type: 'image' as const,
-          url: tile.dataUrl,
-          createdAt,
-        }
-        updateNode(tileNode.id, {
-          result,
-          history: [result],
-          status: 'success',
-          ...(tileSize ? { size: { width: tileSize.width, height: tileSize.height } } : {}),
-          meta: {
-            ...(tileNode.meta || {}),
-            source: `image-grid-split-${gridSize}x${gridSize}`,
-            sourceNodeId: node.id,
-            localOnly: true,
-            gridSize,
-            gridRow: tile.row,
-            gridColumn: tile.column,
-            imageWidth: tile.width,
-            imageHeight: tile.height,
-            imageAspectRatio: tile.width / Math.max(1, tile.height),
-            previewHeight: tileSize?.previewHeight,
-          },
-        })
-        storeConnectNodes(node.id, tileNode.id, 'reference')
-      })
-    } catch {
-      // Image splitting can fail if the source image cannot be loaded into a canvas due to CORS.
-    } finally {
-      setSplittingGridSize(null)
-    }
-  }, [
-    addNode,
-    node.id,
-    node.position.x,
-    node.position.y,
-    node.result,
-    node.title,
-    splittingGridSize,
-    storeConnectNodes,
-    updateNode,
-    visualSize.width,
-  ])
-
-  // 裁剪：不在原图上做破坏式操作，而是从原图「跳出」一个新节点（对齐宫格截图原则）。
-  // 原节点零改动；新裁剪节点是普通 image 节点，可再缩放/再裁剪/拖时间线/当参考。
-  const handleCropConfirm = React.useCallback(async (rect: CropRect) => {
-    const imageUrl = node.result?.type === 'image' ? node.result.url : undefined
-    setCropMode(false)
-    if (!imageUrl) return
-    try {
-      const cropped = await cropImageRegion(imageUrl, rect)
-      if (!cropped) return
-      const createdAt = Date.now()
-      const preferredWidth = clampNumber(visualSize.width, MIN_NODE_WIDTH, MAX_NODE_WIDTH)
-      const newSize = imageGridTileNodeSize(cropped.width, cropped.height, preferredWidth)
-      const cropNode = addNode({
-        kind: 'image',
-        title: `${node.title || '图片'} 裁剪`,
-        prompt: '图片裁剪',
-        position: {
-          x: Math.round(node.position.x + visualSize.width + 80),
-          y: Math.round(node.position.y),
-        },
-        select: true,
-      })
-      const result = {
-        id: `image-crop-${cropNode.id}-${createdAt}`,
-        type: 'image' as const,
-        url: cropped.dataUrl,
-        createdAt,
-      }
-      updateNode(cropNode.id, {
-        result,
-        history: [result],
-        status: 'success',
-        ...(newSize ? { size: { width: newSize.width, height: newSize.height } } : {}),
-        meta: {
-          ...(cropNode.meta || {}),
-          source: 'image-crop',
-          sourceNodeId: node.id,
-          localOnly: true,
-          imageWidth: cropped.width,
-          imageHeight: cropped.height,
-          imageAspectRatio: cropped.width / Math.max(1, cropped.height),
-          previewHeight: newSize?.previewHeight,
-        },
-      })
-      storeConnectNodes(node.id, cropNode.id, 'reference')
-    } catch {
-      // Crop can fail if the source image cannot be loaded into a canvas due to CORS.
-    }
-  }, [
-    addNode,
-    node.id,
-    node.position.x,
-    node.position.y,
-    node.result,
-    node.title,
-    storeConnectNodes,
-    updateNode,
-    visualSize.width,
-  ])
-
-  // 旋转 / 翻转：同款「跳出新节点」原则 —— canvas 处理后派生新 image 节点，原图保留。
-  const handleImageTransform = React.useCallback(async (op: ImageTransformOp) => {
-    const imageUrl = node.result?.type === 'image' ? node.result.url : undefined
-    if (!imageUrl || imageOpBusy) return
-    setImageOpBusy(true)
-    try {
-      const out = await transformImage(imageUrl, op)
-      if (!out) return
-      const createdAt = Date.now()
-      const preferredWidth = clampNumber(visualSize.width, MIN_NODE_WIDTH, MAX_NODE_WIDTH)
-      const newSize = imageGridTileNodeSize(out.width, out.height, preferredWidth)
-      const opNode = addNode({
-        kind: 'image',
-        title: `${node.title || '图片'} ${IMAGE_TRANSFORM_LABEL[op]}`,
-        prompt: IMAGE_TRANSFORM_LABEL[op],
-        position: {
-          x: Math.round(node.position.x + visualSize.width + 80),
-          y: Math.round(node.position.y),
-        },
-        select: true,
-      })
-      const result = {
-        id: `image-${op}-${opNode.id}-${createdAt}`,
-        type: 'image' as const,
-        url: out.dataUrl,
-        createdAt,
-      }
-      updateNode(opNode.id, {
-        result,
-        history: [result],
-        status: 'success',
-        ...(newSize ? { size: { width: newSize.width, height: newSize.height } } : {}),
-        meta: {
-          ...(opNode.meta || {}),
-          source: `image-${op}`,
-          sourceNodeId: node.id,
-          localOnly: true,
-          imageWidth: out.width,
-          imageHeight: out.height,
-          imageAspectRatio: out.width / Math.max(1, out.height),
-          previewHeight: newSize?.previewHeight,
-        },
-      })
-      storeConnectNodes(node.id, opNode.id, 'reference')
-    } catch {
-      // Transform can fail if the source image cannot be loaded into a canvas due to CORS.
-    } finally {
-      setImageOpBusy(false)
-    }
-  }, [
-    addNode,
-    imageOpBusy,
-    node.id,
-    node.position.x,
-    node.position.y,
-    node.result,
-    node.title,
-    storeConnectNodes,
-    updateNode,
-    visualSize.width,
-  ])
+  // 图片本地编辑（切图 / 裁剪 / 旋转翻转）—— A1.5 抽进 useNodeImageEditing。
+  // 图片类与素材类共用；衍生物都「跳出新节点」，原图零改动。
+  const imageEditing = useNodeImageEditing(node, visualSize)
 
   return (
     <article
@@ -1009,97 +687,14 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
       ) : null}
 
       {node.kind === 'image' && selected && !readOnly && node.result?.type === 'image' && node.result.url ? (
-        <div
-          className={cn(
-            'generation-canvas-v2-node__panorama-toolbar',
-            'absolute left-1/2 bottom-[calc(100%+18px)] z-[12]',
-            'inline-flex items-center gap-1 min-h-[44px] py-[5px] px-2',
-            'border border-[rgba(18,24,38,0.08)] rounded-[14px]',
-            'bg-white/[0.96] shadow-[0_12px_34px_rgba(18,24,38,0.14)]',
-            '-translate-x-1/2 backdrop-blur-[12px]',
-          )}
-          role="toolbar"
-          aria-label="图片切图操作"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <button
-            className={cn(
-              'inline-flex items-center justify-center gap-[7px]',
-              'min-w-0 min-h-[34px] px-[11px] border-0 rounded-[9px]',
-              'bg-transparent text-nomi-ink-80 font-[inherit] text-[13px] leading-none whitespace-nowrap cursor-pointer',
-              'hover:bg-nomi-ink-05 hover:text-nomi-ink',
-              'disabled:opacity-[0.45] disabled:cursor-wait',
-            )}
-            type="button"
-            aria-label="四视图截图（2×2）"
-            title="四视图截图（2×2）"
-            disabled={splittingGridSize !== null}
-            onClick={() => { void handleImageGridSplit(2) }}
-          >
-            <IconLayoutGrid size={16} stroke={1.8} />
-            <span>四视图截图</span>
-          </button>
-          <button
-            className={cn(
-              'inline-flex items-center justify-center gap-[7px]',
-              'min-w-0 min-h-[34px] px-[11px] border-0 rounded-[9px]',
-              'bg-transparent text-nomi-ink-80 font-[inherit] text-[13px] leading-none whitespace-nowrap cursor-pointer',
-              'hover:bg-nomi-ink-05 hover:text-nomi-ink',
-              'disabled:opacity-[0.45] disabled:cursor-wait',
-            )}
-            type="button"
-            aria-label="九宫格截图（3×3）"
-            title="九宫格截图（3×3）"
-            disabled={splittingGridSize !== null}
-            onClick={() => { void handleImageGridSplit(3) }}
-          >
-            <IconGrid3x3 size={16} stroke={1.8} />
-            <span>九宫格截图</span>
-          </button>
-          <span className={cn('w-px h-[22px] bg-[rgba(18,24,38,0.1)]')} />
-          <button
-            className={cn(
-              'inline-flex items-center justify-center gap-[7px]',
-              'min-w-0 min-h-[34px] px-[11px] border-0 rounded-[9px]',
-              'bg-transparent text-nomi-ink-80 font-[inherit] text-[13px] leading-none whitespace-nowrap cursor-pointer',
-              'hover:bg-nomi-ink-05 hover:text-nomi-ink',
-              'disabled:opacity-[0.45] disabled:cursor-wait',
-            )}
-            type="button"
-            aria-label="裁剪图片"
-            title="裁剪（裁出一个新节点，原图保留）"
-            disabled={cropMode || splittingGridSize !== null}
-            onClick={() => setCropMode(true)}
-          >
-            <IconCrop size={16} stroke={1.8} />
-            <span>裁剪</span>
-          </button>
-          <span className={cn('w-px h-[22px] bg-[rgba(18,24,38,0.1)]')} />
-          {([
-            { op: 'rotate-left' as const, Icon: IconRotate2 },
-            { op: 'rotate-right' as const, Icon: IconRotateClockwise2 },
-            { op: 'flip-h' as const, Icon: IconFlipHorizontal },
-            { op: 'flip-v' as const, Icon: IconFlipVertical },
-          ]).map(({ op, Icon }) => (
-            <button
-              key={op}
-              className={cn(
-                'inline-flex items-center justify-center',
-                'min-w-0 w-[34px] min-h-[34px] border-0 rounded-[9px]',
-                'bg-transparent text-nomi-ink-80 cursor-pointer',
-                'hover:bg-nomi-ink-05 hover:text-nomi-ink',
-                'disabled:opacity-[0.45] disabled:cursor-wait',
-              )}
-              type="button"
-              aria-label={IMAGE_TRANSFORM_LABEL[op]}
-              title={`${IMAGE_TRANSFORM_LABEL[op]}（生成一个新节点，原图保留）`}
-              disabled={imageOpBusy || cropMode || splittingGridSize !== null}
-              onClick={() => { void handleImageTransform(op) }}
-            >
-              <Icon size={16} stroke={1.8} />
-            </button>
-          ))}
-        </div>
+        <NodeImageEditToolbar
+          splittingGridSize={imageEditing.splittingGridSize}
+          cropMode={imageEditing.cropMode}
+          imageOpBusy={imageEditing.imageOpBusy}
+          onGridSplit={(gridSize) => { void imageEditing.handleImageGridSplit(gridSize) }}
+          onCrop={() => imageEditing.setCropMode(true)}
+          onTransform={(op) => { void imageEditing.handleImageTransform(op) }}
+        />
       ) : null}
 
       <header className={cn(
@@ -1271,11 +866,11 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
             )}
           </div>
         )}
-        {cropMode && node.kind === 'image' && node.result?.type === 'image' && node.result.url ? (
+        {imageEditing.cropMode && node.kind === 'image' && node.result?.type === 'image' && node.result.url ? (
           <ImageCropOverlay
             imageUrl={node.result.url}
-            onConfirm={(rect) => { void handleCropConfirm(rect) }}
-            onCancel={() => setCropMode(false)}
+            onConfirm={(rect) => { void imageEditing.handleCropConfirm(rect) }}
+            onCancel={() => imageEditing.setCropMode(false)}
           />
         ) : null}
       </div>
