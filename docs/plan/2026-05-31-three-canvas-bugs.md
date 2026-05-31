@@ -56,3 +56,14 @@
 4. bug #2 待用户重新 onboard 一个视频模型确认 kind=video。
 
 > ⚠️ 已存在 catalog 里的 `gemini-omni-video`（kind=image，但参数是 video）是修复前 onboard 的脏数据，create mapping 也按 text_to_image 建的。需用户**重新 onboard 一次**才能正确归为 video（光改 kind 字段不够，taskKind 映射也得重建）。
+
+## 7. 通用化加强（用户复盘：要自适应、不能 per-model）
+
+用户指出这些本质是自适应/通用问题。对账后：#1 图片比例、#3 空参数过滤、#4 image-url→顶部参考图 都已是 model-agnostic（写在 `buildDynamicControls`/`buildImageUrlSlots`，对所有模型生效，无任何硬编码 model 名）。两处补强：
+
+- **#2 底部参数区自适应（用户选：面板随参数数量变宽）**：
+  - `NodeParameterControls.tsx` 导出 `useNodeParameterControlCount(node)` —— 复用 `buildModelControls` 算出底部行控件数（模型选择器 + 动态控件），纯 catalog-meta 驱动。
+  - `BaseGenerationNode.tsx` `floatingComposerLayout` 增加 `controlCount` 参数：`panelWidth = clamp(max(aspectWidth, controlCount*92+96), 320, 720)`。参数越多面板越宽，封顶 720 不跑出画布。
+- **#4 加固（用户选：加固）**：新增共享判定 `looksLikeImageUrlControl` —— `type==='image-url'` 或 free-text 且 key 名像图片 URL（imageurl/inputurls/referenceimage/firstframe…）。`buildImageUrlSlots`（顶部）和 `buildDynamicControls`（底部）共用它，保证一个参数只落一处，且不再完全依赖 onboarding 把类型标对。
+
+验收：electron tsc 0 错、前端我改文件 0 新错、`pnpm test` 339 全绿、已重建重启。待用户目视确认参数多的模型面板变宽、被错标成 text 的图片参数也跑到顶部。

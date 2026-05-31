@@ -74,6 +74,26 @@ function inferImageUrlGroup(key: string): ImageUrlGroup {
   return 'reference'
 }
 
+// A param is an image-reference input if onboarding tagged it 'image-url',
+// OR its key name clearly names an image URL (onboarding sometimes mis-tags
+// these as plain text). Both buildImageUrlSlots (top reference boxes) and
+// buildDynamicControls (bottom param row) use THIS predicate, so any given
+// param lands in exactly one place — and it works for any model, not just the
+// ones whose type was tagged correctly during onboarding.
+const IMAGE_URL_KEY_FRAGMENTS = [
+  'imageurl', 'imgurl', 'imageurls', 'inputurl', 'inputurls', 'inputimage', 'inputimg', 'imageinput',
+  'referenceimage', 'refimage', 'initimage', 'sourceimage', 'sourceimg',
+  'startimage', 'endimage', 'firstframe', 'lastframe', 'frameurl', 'photourl',
+]
+function looksLikeImageUrlControl(control: ModelParameterControl): boolean {
+  if (control.type === 'image-url') return true
+  // Only ever promote a free-text param; never a select/number/boolean (those
+  // are real value pickers, not image inputs).
+  if (control.type !== 'text') return false
+  const lower = control.key.toLowerCase().replace(/[-_]/g, '')
+  return IMAGE_URL_KEY_FRAGMENTS.some((f) => lower.includes(f))
+}
+
 function edgeModeForGroup(group: ImageUrlGroup): GenerationCanvasEdgeMode {
   if (group === 'first_frame') return 'first_frame'
   if (group === 'last_frame') return 'last_frame'
@@ -92,7 +112,7 @@ function getEdgeSourceForSlot(
 function buildImageUrlSlots(meta: unknown): ImageUrlSlot[] {
   const controls = parseModelParameterControls(meta)
   return controls
-    .filter((c) => c.type === 'image-url')
+    .filter(looksLikeImageUrlControl)
     .map((c) => ({ key: c.key, label: c.label, group: inferImageUrlGroup(c.key) }))
 }
 
@@ -422,7 +442,9 @@ function buildDynamicControls(input: {
   isVideoLike: boolean
 }): DynamicModelControl[] {
   const paramControls = dedupeParamControls(
-    input.parameterControls.filter((c) => c.type !== 'image-url' && !isEmptyInputControl(c)),
+    // image-url-like params render as reference boxes at the top (buildImageUrlSlots),
+    // so they must NOT also appear in the bottom value row.
+    input.parameterControls.filter((c) => !looksLikeImageUrlControl(c) && !isEmptyInputControl(c)),
   )
   const controls: DynamicModelControl[] = paramControls.map((control) => ({
     ...control,
@@ -582,6 +604,24 @@ function buildModelControls(meta: unknown, isImageLike: boolean, isVideoLike: bo
 
 function hasConfigurableControls(meta: unknown, isImageLike: boolean, isVideoLike: boolean): boolean {
   return buildModelControls(meta, isImageLike, isVideoLike).length > 0
+}
+
+// Number of controls that render in the bottom value row for this node: the
+// model selector (always one) + every dynamic control the selected model
+// exposes. BaseGenerationNode uses this to widen the composer so the controls
+// stay readable when a model has many params, instead of squishing into
+// slivers. Model-agnostic — driven entirely by the catalog meta.
+export function useNodeParameterControlCount(node: GenerationCanvasNode): number {
+  const modelOptionsState = useGenerationModelOptionsState(node.kind)
+  const modelOptions = modelOptionsState.options
+  const isImageLike = isImageLikeGenerationNodeKind(node.kind)
+  const isVideoLike = isVideoLikeGenerationNodeKind(node.kind)
+  if (!isImageLike && !isVideoLike) return 0
+  const meta = node.meta || {}
+  const selectedModelValue = readMeta(meta, 'modelKey') || readMeta(meta, 'modelAlias') || readMeta(meta, 'imageModel') || readMeta(meta, 'videoModel')
+  const selectedModelOption = findModelOptionByIdentifier(modelOptions, selectedModelValue) || null
+  const controls = buildModelControls(selectedModelOption?.meta, isImageLike, isVideoLike)
+  return controls.length + 1
 }
 
 function chooseDefaultModelOption(

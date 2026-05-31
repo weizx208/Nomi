@@ -20,7 +20,7 @@ import { getTrackTypeForClipType } from '../../timeline/timelineTypes'
 import { buildClipFromGenerationNode } from '../model/buildClipFromGenerationNode'
 import { canRunGenerationNode, rerunGenerationNodeAsNewNode, runGenerationNode } from '../runner/generationRunController'
 import { WorkbenchButton } from '../../../design'
-import NodeParameterControls from './NodeParameterControls'
+import NodeParameterControls, { useNodeParameterControlCount } from './NodeParameterControls'
 import { buildVideoPlaybackUrl } from '../../../media/videoPlaybackUrl'
 import { diagnoseVideoPlaybackFailure, logVideoPlaybackFailure } from '../../../media/videoPlaybackDiagnostics'
 import PanoramaViewer, { type PanoramaScreenshot } from './PanoramaViewer'
@@ -90,13 +90,19 @@ function nodeWidthForAspectRatio(aspectRatio: number): number {
   return 340
 }
 
-function floatingComposerLayout(width: number, height: number, kind: GenerationCanvasNode['kind']): FloatingComposerLayout {
+function floatingComposerLayout(width: number, height: number, kind: GenerationCanvasNode['kind'], controlCount = 0): FloatingComposerLayout {
   const aspectRatio = width / Math.max(1, height)
-  const panelWidth = aspectRatio >= 1.55
+  const aspectWidth = aspectRatio >= 1.55
     ? clampNumber(Math.round(width * 0.88), 360, 560)
     : aspectRatio <= 0.78
       ? clampNumber(Math.round(width * 1.18), 320, 420)
       : clampNumber(Math.round(width * 0.98), 330, 500)
+  // Widen the panel so each bottom control keeps a readable width instead of
+  // squishing into a sliver when a model exposes many params. ~92px per control
+  // + headroom for the generate button. Capped at 720 so it never runs off the
+  // canvas, then never narrower than the aspect-derived width.
+  const controlsWidth = controlCount > 0 ? controlCount * 92 + 96 : 0
+  const panelWidth = clampNumber(Math.max(aspectWidth, controlsWidth), 320, 720)
   const maxHeight = clampNumber(Math.round(height * 0.72), 176, kind === 'video' ? 260 : 220)
   const gap = width >= 420 ? 14 : 10
   return {
@@ -593,7 +599,8 @@ function BaseGenerationNodeImpl({ node, selected, readOnly = false, focusFlash =
   ) && !isGenerating
   const canSendToTimeline = canDragGenerationNodeToTimeline(node, { readOnly })
   const showStatusBadge = status === 'queued' || status === 'running' || status === 'error'
-  const composerLayout = floatingComposerLayout(visualSize.width, visualSize.height, node.kind)
+  const composerControlCount = useNodeParameterControlCount(node)
+  const composerLayout = floatingComposerLayout(visualSize.width, visualSize.height, node.kind, composerControlCount)
 
   // v0.7.2 perf: 用 primitive 订阅 sourceNodeTitle / categoryId / exists 重组 label
   const sourceNodeLabel = sourceNodeTitle || (node.derivedFrom && !sourceNodeExists ? '源节点已不在当前项目' : (node.derivedFrom || ''))
