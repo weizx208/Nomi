@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const electron = require("electron");
-const repoRoot = path.dirname(fileURLToPath(new URL("..", import.meta.url)));
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Auto-load the onboarding agent LLM (dm-fox gpt-5.5) from .secrets/agent.key so
 // model onboarding works without manual `export`s. Already-set env vars win.

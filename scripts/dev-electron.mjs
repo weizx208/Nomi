@@ -6,7 +6,7 @@ import net from "node:net";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const repoRoot = path.dirname(fileURLToPath(new URL("..", import.meta.url)));
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Make the onboarding agent work in `pnpm dev` without manual `export`s.
