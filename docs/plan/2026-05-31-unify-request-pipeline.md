@@ -73,4 +73,16 @@
 
 ## 7. 结果（实施后回填）
 
-_待实施。_
+实施完成，commit `0908f05`（含前置 `ddd3908` 的 extractTaskId data 信封修复）。
+
+- 新建 `electron/ai/requestPipeline.ts`（electron-free）：`buildTemplateContext` / `renderTemplateString` / `renderTemplateValue` / `authHeaders` / `authQueryParams` / `joinUrl` / `appendQueryParams` / `buildHttpRequest` / `extractTaskId` / `looksLikeLogicalError`。
+- `runtime.ts`：删除私有 `templateContext` 内部实现、`readTemplatePath`、`renderTemplateString`、`renderTemplateValue`、`renderedRecord`、`stringifyHeaders`、`redactHeaders`、`operationUrl`、`appendQueryParams`、`extractTaskId`、内联 logical-error；改用共享模块。`templateContext`/`authHeaders`/`authQueryParams`/`buildProfileHttpRequest` 保留为 Vendor→primitive 薄适配器。
+- `tools.ts` `execute_test_curl`：删除私有 `renderTemplate`/`renderTemplateValue`/`readPath`/`seedFromBody`/`looksLikeLogicalError`/`redactHeaders` + 内联鉴权 + 手写 URL/query 构建；改用 `buildTemplateContext` + `buildHttpRequest` + `extractTaskId`。
+- 新增 `electron/ai/requestPipeline.test.ts`：30 条离线用例，锁定 kie create+poll 契约（data.taskId 信封、`{{user_api_key}}` 鉴权、mapping header override、query 占位、logical-error）。
+
+验收门结果：
+1. `tsc -p electron/tsconfig.json` ✅ 0 错（src/ 既有 pre-existing 错误未增）。
+2. `pnpm test` ✅ 35 files / 339 tests + 1 todo 全绿（含新增 30 条）。
+3. grep ✅ runtime.ts / tools.ts 不再有重复的 templateContext/render/auth/extractTaskId 实现（仅剩 runtime 的薄适配器）。
+4. 真实端到端：kie text_to_image 已出图（修复链路验证，见会话）；text_to_video 待用户复测。
+5. test==prod：两端共用 `buildHttpRequest`，构造一致。
