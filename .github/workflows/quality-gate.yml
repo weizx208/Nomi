@@ -53,4 +53,4 @@ jobs:
       - name: Package macOS app
         run: pnpm run dist:mac:dir
       - name: Verify macOS signature
-        run: codesign --verify --deep --strict --verbose=4 dist/mac-arm64/Nomi.app
+        run: codesign --verify --deep --strict --verbose=4 release/mac-arm64/Nomi.app
