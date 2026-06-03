@@ -2,7 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ExportCancelledError, exportDimensionsForPreset, resolveFfmpegPath, transcodeWebmFileToMp4, transcodeWebmToMp4 } from "./ffmpegRunner";
+import { ExportCancelledError, exportDimensionsForPreset, renderFiltergraphToMp4, resolveFfmpegPath, transcodeWebmFileToMp4, transcodeWebmToMp4 } from "./ffmpegRunner";
+import type { ExportProfile } from "./exportTypes";
+import type { FfmpegFiltergraphPlan } from "./ffmpegFiltergraph";
 
 const tempRoots: string[] = [];
 
@@ -340,3 +342,100 @@ describe("transcodeWebmToMp4", () => {
     })).rejects.toThrow("MP4 编码组件缺失，请重新安装 Nomi");
   });
 });
+
+describe("renderFiltergraphToMp4", () => {
+  const audioProfile: ExportProfile = {
+    preset: "publish",
+    container: "mp4",
+    videoCodec: "h264",
+    audioCodec: "aac",
+    audioMode: "mixdown",
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    pixelFormat: "yuv420p",
+    quality: "standard",
+    audioBitrateKbps: 192,
+  };
+
+  const audioPlan: FfmpegFiltergraphPlan = {
+    inputs: [{ assetId: "v1", path: "/media/clip.mp4", kind: "video", inputArgs: [] }],
+    filterComplex: "[0:v]scale=1920:1080[vout];[0:a]asetpts=PTS-STARTPTS,adelay=0|0[aout]",
+    videoOutputLabel: "[vout]",
+    audioOutputLabel: "[aout]",
+    warnings: [],
+  };
+
+  it("直读源文件渲染：拼 filter_complex + 映射音视频 + 输出可播放 MP4", async () => {
+    const projectDir = makeTempDir();
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = await renderFiltergraphToMp4({
+      projectDir,
+      outputName: "Sound Export",
+      ffmpegPath: "/usr/local/bin/ffmpeg",
+      profile: audioProfile,
+      filtergraph: audioPlan,
+      runProcess: async (command, args) => {
+        calls.push({ command, args });
+        fs.writeFileSync(args[args.length - 1], "mp4-bytes");
+        return { code: 0, stderr: "" };
+      },
+    });
+
+    expect(result.relativePath).toMatch(/^exports\/Sound-Export-\d+\.mp4$/);
+    expect(fs.readFileSync(result.absolutePath, "utf8")).toBe("mp4-bytes");
+    expect(calls).toHaveLength(1);
+    const args = calls[0].args;
+    // 读源文件而非 webm：-i <源路径>
+    expect(args).toContain("-i");
+    expect(args).toContain("/media/clip.mp4");
+    expect(args).toContain("-filter_complex");
+    // 视频 + 音频都被映射
+    expect(args).toContain("[vout]");
+    expect(args).toContain("[aout]");
+    // AAC 音频编码
+    expect(args).toContain("-c:a");
+    expect(args).toContain("aac");
+    expect(args).toContain("libx264");
+  });
+
+  it("无音频输出标签时不写音频映射（纯视觉 letterbox）", async () => {
+    const projectDir = makeTempDir();
+    let captured: string[] = [];
+    await renderFiltergraphToMp4({
+      projectDir,
+      outputName: "Silent Export",
+      ffmpegPath: "/usr/local/bin/ffmpeg",
+      profile: { ...audioProfile, audioCodec: "none", audioMode: "mute" },
+      filtergraph: { ...audioPlan, audioOutputLabel: undefined, filterComplex: "[0:v]scale=1920:1080[vout]" },
+      runProcess: async (_command, args) => {
+        captured = args;
+        fs.writeFileSync(args[args.length - 1], "mp4-bytes");
+        return { code: 0, stderr: "" };
+      },
+    });
+    expect(captured).toContain("[vout]");
+    expect(captured).toContain("-an");
+    expect(captured).not.toContain("[aout]");
+  });
+
+  it("ffmpeg 失败时抛错并清理 partial 文件", async () => {
+    const projectDir = makeTempDir();
+    let attempted = "";
+    await expect(
+      renderFiltergraphToMp4({
+        projectDir,
+        outputName: "Broken FG",
+        ffmpegPath: "/usr/local/bin/ffmpeg",
+        profile: audioProfile,
+        filtergraph: audioPlan,
+        runProcess: async (_command, args) => {
+          attempted = args[args.length - 1];
+          fs.writeFileSync(attempted, "partial");
+          return { code: 1, stderr: "Unknown encoder" };
+        },
+      }),
+    ).rejects.toThrow(/导出失败/);
+    expect(fs.existsSync(attempted)).toBe(false);
+  });
+})

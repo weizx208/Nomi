@@ -11,7 +11,9 @@ import { assertProjectExportRelativePath, ensureExportDirs } from "./export/expo
 import { ExportJobManager, type ExportJobEvent, type ExportJobSnapshot } from "./export/exportJobManager";
 import { assertValidManifest, type NomiRenderManifestV1 } from "./export/exportManifest";
 import { planExport } from "./export/exportPlanner";
-import { ExportCancelledError, transcodeWebmFileToMp4, transcodeWebmToMp4 } from "./export/ffmpegRunner";
+import { ExportCancelledError, renderFiltergraphToMp4, transcodeWebmFileToMp4, transcodeWebmToMp4, type TimelineMp4ExportResult } from "./export/ffmpegRunner";
+import { compileFfmpegFiltergraph, type FfmpegFiltergraphPlan } from "./export/ffmpegFiltergraph";
+import { probeMediaMetadata } from "./export/mediaProbe";
 import { appendExportTempInputChunk, finishExportTempInput as finishExportTempInputFile, removeExportTempInput } from "./export/exportTempInput";
 import {
   canvasNodeKindSchema,
@@ -686,6 +688,109 @@ function parseExportJobManifest(value: unknown): NomiRenderManifestV1 {
   return manifestValue;
 }
 
+// ── filtergraph 导出主路径（音频 + letterbox WYSIWYG）；失败回退 WebM 转码 ──────────
+// 按 jobId 暂存 renderer 原始 manifest；finishExportTempInput 里解析本地资产 + ffprobe + 编译 filtergraph。
+const rawExportManifests = new Map<string, unknown>();
+
+function absolutePathFromLocalAssetUrl(url: unknown, projectId: string): string | null {
+  if (typeof url !== "string") return null;
+  const prefix = "nomi-local://asset/";
+  if (!url.startsWith(prefix)) return null;
+  const rest = url.slice(prefix.length);
+  const slashIndex = rest.indexOf("/");
+  if (slashIndex < 0) return null;
+  let urlProjectId: string;
+  let relativePath: string;
+  try {
+    urlProjectId = decodeURIComponent(rest.slice(0, slashIndex));
+    relativePath = rest.slice(slashIndex + 1).split("/").map(decodeURIComponent).join("/");
+  } catch {
+    return null;
+  }
+  if (urlProjectId !== projectId || !relativePath) return null;
+  try {
+    const absolutePath = resolveProjectRelativePath(projectId, relativePath);
+    return fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile() ? absolutePath : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * renderer 原始 manifest → 可直接喂 ffmpeg 的 filtergraph 计划：
+ * 资产 url → 本地绝对路径 + ffprobe(hasAudio/duration)；任一资产无法解析则返回 null（回退 WebM）。
+ */
+async function tryBuildFiltergraphExport(
+  rawManifest: unknown,
+  projectId: string,
+): Promise<{ manifest: NomiRenderManifestV1; plan: FfmpegFiltergraphPlan } | null> {
+  if (!isPlainRecord(rawManifest)) return null;
+  const rawTimeline = isPlainRecord(rawManifest.timeline) ? rawManifest.timeline : null;
+  const rawProfile = isPlainRecord(rawManifest.profile) ? rawManifest.profile : null;
+  const rawAssets = isPlainRecord(rawManifest.assets) ? rawManifest.assets : null;
+  if (!rawTimeline || !rawProfile || !rawAssets) return null;
+  if (!Array.isArray(rawTimeline.tracks) || rawTimeline.tracks.length === 0) return null;
+  if (Object.keys(rawAssets).length === 0) return null;
+
+  const resolvedAssets: Record<string, NomiRenderManifestV1["assets"][string]> = {};
+  let anyHasAudio = false;
+  for (const [assetId, rawAsset] of Object.entries(rawAssets)) {
+    if (!isPlainRecord(rawAsset)) return null;
+    const kind = rawAsset.kind;
+    if (kind !== "image" && kind !== "video" && kind !== "audio") return null;
+    const absolutePath = absolutePathFromLocalAssetUrl(rawAsset.url, projectId);
+    if (!absolutePath) return null; // 非本地/无法解析 → 整体回退 WebM
+    const asset: NomiRenderManifestV1["assets"][string] = { id: assetId, kind, absolutePath };
+    if (kind === "video" || kind === "audio") {
+      try {
+        const probe = await probeMediaMetadata(absolutePath);
+        if (probe.hasAudio) {
+          asset.hasAudio = true;
+          anyHasAudio = true;
+        }
+        if (probe.durationSeconds !== undefined) asset.durationSeconds = probe.durationSeconds;
+        if (probe.audioCodec !== undefined) asset.audioCodec = probe.audioCodec;
+      } catch {
+        // 探测失败不致命：按无音频处理
+      }
+    }
+    resolvedAssets[assetId] = asset;
+  }
+
+  const fps = Number(rawTimeline.fps);
+  const durationFrames = Number(rawTimeline.durationFrames);
+  if (!Number.isFinite(fps) || fps <= 0 || !Number.isFinite(durationFrames) || durationFrames <= 0) return null;
+
+  const profile = {
+    ...(rawProfile as NomiRenderManifestV1["profile"]),
+    audioCodec: anyHasAudio ? ("aac" as const) : ("none" as const),
+    audioMode: anyHasAudio ? ("mixdown" as const) : ("mute" as const),
+    ...(anyHasAudio ? { audioBitrateKbps: 192 } : {}),
+  } satisfies NomiRenderManifestV1["profile"];
+
+  const manifest: NomiRenderManifestV1 = {
+    version: 1,
+    projectId,
+    createdAt: typeof rawManifest.createdAt === "string" ? rawManifest.createdAt : new Date().toISOString(),
+    timeline: {
+      fps,
+      durationFrames,
+      range: { startFrame: 0, endFrame: durationFrames },
+      tracks: rawTimeline.tracks as NomiRenderManifestV1["timeline"]["tracks"],
+    },
+    profile,
+    assets: resolvedAssets,
+  };
+
+  try {
+    assertValidManifest(manifest);
+    const plan = compileFfmpegFiltergraph({ manifest });
+    return { manifest, plan };
+  } catch {
+    return null; // 校验/编译失败 → 回退 WebM
+  }
+}
+
 export function startExportJob(payload: unknown): { jobId: string } {
   const raw = (payload || {}) as ExportJobStartRequest;
   const projectId = String(raw.projectId || "").trim();
@@ -699,6 +804,8 @@ export function startExportJob(payload: unknown): { jobId: string } {
   }
   const plan = planExport(manifest);
   const job = exportJobManager.createJob({ projectId, projectDir, manifest, outputName: raw.outputName });
+  // 暂存 renderer 原始 manifest，供 finishExportTempInput 解析本地资产走 filtergraph 主路径
+  rawExportManifests.set(job.id, raw.manifest);
   exportJobManager.updateJob(job.id, {
     status: "planning",
     progress: { ratio: 0.02, stage: "planning", message: `Planned ${plan.backend} export backend` },
@@ -721,6 +828,7 @@ export async function cancelExportJob(jobId: string): Promise<{ ok: true }> {
   activeExportAbortControllers.get(id)?.abort();
   await exportJobManager.cancelJob(id);
   if (job) removeExportTempInput(job);
+  rawExportManifests.delete(id);
   return { ok: true };
 }
 
@@ -781,31 +889,72 @@ export async function finishExportTempInput(payload: unknown): Promise<unknown> 
       status: "encoding",
       progress: { ratio: Math.max(job.progress.ratio, 0.12), stage: "encoding", message: "Encoding MP4" },
     });
-    const result = await transcodeWebmFileToMp4({
-      jobId: job.id,
-      projectDir: job.projectDir,
-      inputPath,
-      outputName: job.outputName || "nomi-export",
-      resolution: resolutionFromProfile(profile),
-      aspectRatio: aspectRatioFromProfile(profile),
-      quality: profile.quality || "standard",
-      fps: profile.fps || job.manifest.timeline.fps || 30,
-      durationMs,
-      signal: controller.signal,
-      stderrLogPath,
-      onProgress: (progress) => {
-        const current = exportJobManager.getJob(job.id);
-        if (!current || current.cancelled) return;
-        exportJobManager.updateJob(job.id, {
-          status: "encoding",
-          progress: {
-            ratio: Math.max(current.progress.ratio, 0.12 + progress.ratio * 0.84),
-            stage: "encoding",
-            message: progress.message || "Encoding MP4",
-          },
-        });
-      },
-    });
+
+    const onEncodeProgress = (progress: { ratio: number; message?: string }) => {
+      const current = exportJobManager.getJob(job.id);
+      if (!current || current.cancelled) return;
+      exportJobManager.updateJob(job.id, {
+        status: "encoding",
+        progress: {
+          ratio: Math.max(current.progress.ratio, 0.12 + progress.ratio * 0.84),
+          stage: "encoding",
+          message: progress.message || "Encoding MP4",
+        },
+      });
+    };
+
+    // 主路径：解析本地资产 → filtergraph 直读源文件渲染（含音频 + letterbox WYSIWYG）
+    let result: TimelineMp4ExportResult | null = null;
+    const rawManifest = rawExportManifests.get(job.id);
+    if (rawManifest !== undefined) {
+      try {
+        const filtergraphExport = await tryBuildFiltergraphExport(rawManifest, job.manifest.projectId);
+        if (filtergraphExport) {
+          const fgDurationMs = Math.max(
+            0,
+            (filtergraphExport.manifest.timeline.durationFrames / Math.max(1, filtergraphExport.manifest.timeline.fps)) * 1000,
+          );
+          result = await renderFiltergraphToMp4({
+            jobId: job.id,
+            projectDir: job.projectDir,
+            outputName: job.outputName || "nomi-export",
+            profile: filtergraphExport.manifest.profile,
+            filtergraph: filtergraphExport.plan,
+            durationMs: fgDurationMs,
+            signal: controller.signal,
+            stderrLogPath,
+            onProgress: onEncodeProgress,
+          });
+        }
+      } catch (filtergraphError) {
+        if (filtergraphError instanceof ExportCancelledError || controller.signal.aborted) throw filtergraphError;
+        // filtergraph 失败 → 记录并回退 WebM 转码（保证导出不中断）
+        try {
+          fs.appendFileSync(stderrLogPath, `\n[filtergraph fallback] ${filtergraphError instanceof Error ? filtergraphError.message : String(filtergraphError)}\n`);
+        } catch {
+          /* ignore log write failure */
+        }
+        result = null;
+      }
+    }
+
+    // 回退路径：WebM → MP4（视频帧由 renderer canvas 录制而来，无音频）
+    if (!result) {
+      result = await transcodeWebmFileToMp4({
+        jobId: job.id,
+        projectDir: job.projectDir,
+        inputPath,
+        outputName: job.outputName || "nomi-export",
+        resolution: resolutionFromProfile(profile),
+        aspectRatio: aspectRatioFromProfile(profile),
+        quality: profile.quality || "standard",
+        fps: profile.fps || job.manifest.timeline.fps || 30,
+        durationMs,
+        signal: controller.signal,
+        stderrLogPath,
+        onProgress: onEncodeProgress,
+      });
+    }
     if (controller.signal.aborted || exportJobManager.getJob(job.id)?.cancelled) {
       throw new ExportCancelledError();
     }
@@ -830,6 +979,7 @@ export async function finishExportTempInput(payload: unknown): Promise<unknown> 
   } finally {
     activeExportAbortControllers.delete(job.id);
     removeExportTempInput(job);
+    rawExportManifests.delete(job.id);
   }
 }
 

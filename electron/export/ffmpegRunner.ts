@@ -5,6 +5,7 @@ import { createExportTempDir, createSafeOutputPaths } from "./exportPaths";
 import { buildWebmToMp4Args } from "./ffmpegCommandBuilder";
 import { parseFfmpegProgressChunk, progressFromOutTime } from "./ffmpegProgress";
 import type { ExportProfile } from "./exportTypes";
+import type { FfmpegFiltergraphPlan } from "./ffmpegFiltergraph";
 
 export type FfmpegProcessResult = {
   code: number | null;
@@ -274,6 +275,92 @@ export async function transcodeWebmFileToMp4(options: TranscodeWebmFileToMp4Opti
     outputPath: partialOutputPath,
     profile: exportProfileFromLegacyOptions(options),
     noAudio: true,
+    reportProgress: Boolean(options.onProgress || options.durationMs),
+  });
+
+  if (options.signal?.aborted) throw new ExportCancelledError();
+
+  let stderrSummary = "";
+  let sawStderrChunk = false;
+  const progressStream: ProgressStreamState = { buffer: "", recordLines: [] };
+  const handleStderr = (chunk: string) => {
+    if (chunk.length === 0) return;
+    sawStderrChunk = true;
+    stderrSummary = cappedTail(stderrSummary, chunk);
+    appendLog(options.stderrLogPath, chunk);
+    consumeProgressStreamChunk(progressStream, chunk, options.durationMs, options.onProgress);
+  };
+
+  try {
+    const runProcess = options.runProcess || defaultRunProcess;
+    const result = await runProcess(ffmpegPath, args, { signal: options.signal, onStderr: handleStderr });
+    if (result.stderr && !sawStderrChunk) {
+      handleStderr(result.stderr);
+    } else if (result.stderr && result.stderr.trim().length > 0 && !stderrSummary.includes(result.stderr)) {
+      stderrSummary = cappedTail(stderrSummary, result.stderr);
+      appendLog(options.stderrLogPath, result.stderr);
+    }
+    if (result.code !== 0) {
+      const detail = stderrSummaryForError(stderrSummary) || `ffmpeg exited with code ${result.code}`;
+      throw new Error(`导出失败：${detail}`);
+    }
+    if (options.signal?.aborted) throw new ExportCancelledError();
+    if (!fs.existsSync(partialOutputPath)) throw new Error("导出失败：MP4 文件未生成");
+    const stat = fs.statSync(partialOutputPath);
+    if (stat.size <= 0) throw new Error("导出失败：MP4 文件为空");
+    fs.renameSync(partialOutputPath, outputPath);
+    const finalStat = fs.statSync(outputPath);
+    return {
+      absolutePath: outputPath,
+      relativePath: outputPaths.relativeFinalPath,
+      size: finalStat.size,
+    };
+  } catch (error) {
+    if (isAbortLikeError(error) || options.signal?.aborted) {
+      throw new ExportCancelledError(error instanceof Error && error.message ? error.message : undefined);
+    }
+    throw error;
+  } finally {
+    fs.rmSync(partialOutputPath, { force: true });
+  }
+}
+
+export type RenderFiltergraphToMp4Options = {
+  projectDir: string;
+  outputName?: string;
+  ffmpegPath?: string;
+  profile: ExportProfile;
+  filtergraph: FfmpegFiltergraphPlan;
+  durationMs?: number;
+  jobId?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: FfmpegProgressEvent) => void;
+  stderrLogPath?: string;
+  runProcess?: RunFfmpegProcess;
+};
+
+/**
+ * 用 ffmpegFiltergraph 计划直接读源文件渲染 MP4（letterbox 视频 + 可选音频）。
+ * 与 transcodeWebmFileToMp4 并列：那条是 WebM→MP4 回退路径，这条是生产主路径。
+ * 复用同一套进度/取消/原子落盘/错误摘要逻辑。
+ */
+export async function renderFiltergraphToMp4(options: RenderFiltergraphToMp4Options): Promise<TimelineMp4ExportResult> {
+  const ffmpegPath = resolveFfmpegPath(options.ffmpegPath);
+  if (!ffmpegPath) {
+    throw new Error("导出失败：MP4 编码组件缺失，请重新安装 Nomi。你不需要单独安装 FFmpeg。");
+  }
+
+  const projectDir = path.resolve(options.projectDir);
+  const outputPaths = createSafeOutputPaths({ projectDir, outputName: options.outputName, extension: "mp4" });
+  const outputPath = outputPaths.finalPath;
+  const partialOutputPath = outputPaths.partialPath;
+
+  const args = buildWebmToMp4Args({
+    inputPath: "",
+    outputPath: partialOutputPath,
+    profile: options.profile,
+    noAudio: false, // 由 profile.audioMode / filtergraph.audioOutputLabel 决定是否真有音频
+    filtergraph: options.filtergraph,
     reportProgress: Boolean(options.onProgress || options.durationMs),
   });
 
