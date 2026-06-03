@@ -10,6 +10,7 @@ import {
 import ProvenancePanel from "./ProvenancePanel";
 import { getBuiltinCategoryById } from "../../project/projectCategories";
 import CharacterCardNode from "./render/CharacterCardNode";
+import TextDocumentNode from "./render/TextDocumentNode";
 import SceneCardNode from "./render/SceneCardNode";
 import PropCardNode from "./render/PropCardNode";
 import AudioStripNode from "./render/AudioStripNode";
@@ -72,6 +73,35 @@ const MIN_NODE_WIDTH = 240;
 const MAX_NODE_WIDTH = 680;
 const MIN_NODE_HEIGHT = 120;
 const MAX_NODE_HEIGHT = 520;
+// 文本节点（C5）自由缩放边界——文档卡片要更宽更高才好写。
+const TEXT_MIN_WIDTH = 280;
+const TEXT_MAX_WIDTH = 680;
+const TEXT_MIN_HEIGHT = 200;
+const TEXT_MAX_HEIGHT = 800;
+type NodeSizeBounds = {
+    minWidth: number;
+    maxWidth: number;
+    minHeight: number;
+    maxHeight: number;
+};
+// 非媒体节点（含 text）自由缩放时的 min/max。媒体（图/视频）走比例锁定分支，
+// 仍用上面的 MIN/MAX_NODE_*，故此处只为「自由拉伸」路径按 kind 取边界。
+function getNodeSizeBounds(kind: GenerationCanvasNode["kind"]): NodeSizeBounds {
+    if (kind === "text") {
+        return {
+            minWidth: TEXT_MIN_WIDTH,
+            maxWidth: TEXT_MAX_WIDTH,
+            minHeight: TEXT_MIN_HEIGHT,
+            maxHeight: TEXT_MAX_HEIGHT,
+        };
+    }
+    return {
+        minWidth: MIN_NODE_WIDTH,
+        maxWidth: MAX_NODE_WIDTH,
+        minHeight: MIN_NODE_HEIGHT,
+        maxHeight: MAX_NODE_HEIGHT,
+    };
+}
 const TIMELINE_TRACK_CLIPS_SELECTOR = ".workbench-timeline-track__clips";
 const Scene3DEditor = React.lazy(() => import("./Scene3DEditor"));
 
@@ -309,9 +339,19 @@ function BaseGenerationNodeImpl({
         [],
     );
 
+    // C5: 自由缩放边界按 kind 取（text 比媒体节点更大）。在拖拽/缩放闭包之前算好，
+    // 让 handlePointerMove 与渲染期的尺寸计算用同一份 bounds。
+    const sizeBounds = getNodeSizeBounds(node.kind);
+
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         const target = event.target as HTMLElement;
-        if (target.closest("button, input, textarea, select")) return;
+        // C5 安全坑：放行 contenteditable / ProseMirror，否则点正文会被当成拖拽、吞掉光标。
+        if (
+            target.closest(
+                'button, input, textarea, select, [contenteditable="true"], .ProseMirror',
+            )
+        )
+            return;
         if ((target as HTMLElement).tagName === "VIDEO") return;
         event.stopPropagation();
         if (readOnly) {
@@ -413,31 +453,31 @@ function BaseGenerationNodeImpl({
                     }
                 }
             } else {
-                // 无媒体比例（未生成）：保持自由拉伸
+                // 无媒体比例（未生成 / text 节点）：自由拉伸，按 kind 的 bounds clamp。
                 nextWidth = pullsWest
                     ? clampNumber(
                           resizeStart.width - deltaX,
-                          MIN_NODE_WIDTH,
-                          MAX_NODE_WIDTH,
+                          sizeBounds.minWidth,
+                          sizeBounds.maxWidth,
                       )
                     : pullsEast
                       ? clampNumber(
                             resizeStart.width + deltaX,
-                            MIN_NODE_WIDTH,
-                            MAX_NODE_WIDTH,
+                            sizeBounds.minWidth,
+                            sizeBounds.maxWidth,
                         )
                       : resizeStart.width;
                 nextHeight = pullsNorth
                     ? clampNumber(
                           resizeStart.height - deltaY,
-                          MIN_NODE_HEIGHT,
-                          MAX_NODE_HEIGHT,
+                          sizeBounds.minHeight,
+                          sizeBounds.maxHeight,
                       )
                     : pullsSouth
                       ? clampNumber(
                             resizeStart.height + deltaY,
-                            MIN_NODE_HEIGHT,
-                            MAX_NODE_HEIGHT,
+                            sizeBounds.minHeight,
+                            sizeBounds.maxHeight,
                         )
                       : resizeStart.height;
             }
@@ -709,6 +749,8 @@ function BaseGenerationNodeImpl({
         renderKind === "scene-card" ||
         renderKind === "prop-card" ||
         renderKind === "audio-strip";
+    // C5: 文本节点走专属可编辑 body（TextDocumentNode），像 card 那样脱离图片预览。
+    const isTextKind = node.kind === "text";
     const isImageGridSplitNode =
         node.kind === "image" &&
         typeof node.meta?.source === "string" &&
@@ -718,7 +760,11 @@ function BaseGenerationNodeImpl({
         Number.isFinite(node.meta.previewHeight)
             ? isImageGridSplitNode
                 ? Math.max(1, Math.round(node.meta.previewHeight))
-                : clampNumber(Math.round(node.meta.previewHeight), 120, 520)
+                : clampNumber(
+                      Math.round(node.meta.previewHeight),
+                      sizeBounds.minHeight,
+                      sizeBounds.maxHeight,
+                  )
             : null;
     const hasResult = Boolean(node.result?.url);
     // v0.7.1: 卡片模式按 spec 强制固定宽度（cards-design-v1 §4），非卡片走原逻辑
@@ -741,9 +787,9 @@ function BaseGenerationNodeImpl({
     const previewHeight =
         cardFixedHeight ??
         storedPreviewHeight ??
-        clampNumber(size.height, 120, 520);
+        clampNumber(size.height, sizeBounds.minHeight, sizeBounds.maxHeight);
     const visualSize = {
-        width: cardFixedWidth ?? Math.max(MIN_NODE_WIDTH, size.width),
+        width: cardFixedWidth ?? Math.max(sizeBounds.minWidth, size.width),
         height: previewHeight,
     };
     const isGenerating = status === "queued" || status === "running";
@@ -1100,6 +1146,13 @@ function BaseGenerationNodeImpl({
                 </div>
             ) : null}
 
+            {/* C5: 文本节点 —— 可编辑文档 body，脱离图片预览。 */}
+            {isTextKind ? (
+                <div className='w-full h-full rounded-nomi shadow-nomi-md overflow-hidden bg-nomi-paper'>
+                    <TextDocumentNode node={node} />
+                </div>
+            ) : null}
+
             <div
                 className={cn(
                     "generation-canvas-v2-node__preview",
@@ -1109,8 +1162,8 @@ function BaseGenerationNodeImpl({
                     // 不再露出底纹，避免图片外面套一层框。
                     !hasResult &&
                         "bg-[repeating-linear-gradient(45deg,var(--nomi-ink-05)_0_10px,var(--nomi-ink-10)_10px_20px)]",
-                    // [DESIGN-CARDS-07] 卡片模式隐藏 preview div
-                    isCardKind && "hidden",
+                    // [DESIGN-CARDS-07] 卡片模式隐藏 preview div；C5 文本节点同理。
+                    (isCardKind || isTextKind) && "hidden",
                 )}
                 data-timeline-draggable={canSendToTimeline ? "true" : "false"}
                 draggable={false}>

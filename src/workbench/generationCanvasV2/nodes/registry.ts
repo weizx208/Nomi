@@ -62,7 +62,7 @@ export const GENERATION_NODE_PLUGINS = defineGenerationNodePlugins([
         component: loadBaseGenerationNode,
         icon: "text",
         defaultTitle: "文本",
-        defaultSize: { width: 280, height: 170 },
+        defaultSize: { width: 280, height: 200 },
         catalogKind: "text",
         quickAdd: true,
         agentCreatable: true,
