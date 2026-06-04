@@ -1,6 +1,8 @@
 import { getDesktopBridge, type DesktopBridge } from '../../desktop/bridge'
+import type { BillingModelKind } from '../../api/desktopClient'
 
-export type BillingModelKind = 'text' | 'image' | 'video'
+// 单一真相源：复用 desktopClient 的 BillingModelKind（含 'audio'），避免两份定义漂移。
+export type { BillingModelKind }
 
 export type ModelCatalogVendorAuthType = 'none' | 'bearer' | 'x-api-key' | 'query'
 

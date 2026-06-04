@@ -32,6 +32,8 @@ jobs:
         run: pnpm run check:filesize
       - name: Lint (errors block, warnings allowed)
         run: pnpm run lint
+      - name: Typecheck (renderer + electron)
+        run: pnpm run typecheck
       - name: Test
         run: pnpm test
       - name: Build

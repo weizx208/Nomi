@@ -57,7 +57,6 @@ export type AgentsChatStreamEvent =
   | { event: 'result'; data: { response: AgentsChatResponseDto } }
   | { event: 'error'; data: { message: string; code?: string } }
   | { event: 'done'; data: { reason: 'finished' | 'error' } }
-  | { event: string; data: Record<string, unknown> }
 
 export type AgentChatV2ToolDecision =
   | { ok: true; result?: unknown }

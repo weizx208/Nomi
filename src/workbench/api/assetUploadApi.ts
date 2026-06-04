@@ -74,6 +74,6 @@ export async function importWorkbenchLocalAssetFile(
   }) as Promise<WorkbenchAssetDto>
 }
 
-export async function recoverImportedWorkbenchLocalAssetFile(): Promise<WorkbenchAssetDto | null> {
+export async function recoverImportedWorkbenchLocalAssetFile(_file: File): Promise<WorkbenchAssetDto | null> {
   return null
 }

@@ -56,9 +56,8 @@ export async function sendWorkbenchAiMessage(
   let streamedText = ''
   let finalResponse: AgentsChatResponseDto | null = null
   let streamError: Error | null = null
-  let terminalReason: 'finished' | 'error' | '' = ''
 
-  await new Promise<void>((resolve, reject) => {
+  const terminalReason = await new Promise<'finished' | 'error'>((resolve, reject) => {
     void workbenchAgentsChatStream(payload, {
       onSession: handlers.onSession,
       onEvent: (event) => {
@@ -81,8 +80,7 @@ export async function sendWorkbenchAiMessage(
           return
         }
         if (event.event === 'done') {
-          terminalReason = event.data.reason
-          resolve()
+          resolve(event.data.reason)
         }
       },
       onError: reject,

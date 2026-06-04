@@ -50,7 +50,7 @@ export function orderNodesByEdges(
   while (current && !visited.has(current)) {
     visited.add(current)
     ordered.push(current)
-    const next = outgoing.get(current) || []
+    const next: string[] = outgoing.get(current) || []
     if (next.length !== 1) break
     current = next[0]
   }
