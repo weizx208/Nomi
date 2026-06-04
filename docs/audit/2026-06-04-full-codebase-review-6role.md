@@ -96,21 +96,28 @@
 | 修 user-guide 导出章节（WebM/无音频 → MP4+音频+letterbox） | ✅ 已修 | `49151d2` |
 | 删导出 UI 残留"暂不包含音频"文案（exportCopy + TimelinePreview toast） | ✅ 已修 | `ab88a70` |
 | S5 项目存盘改原子写（新增 `electron/jsonFile.ts` + 接 manifest/registry） | ✅ 已修 | `936582e` |
-| 本审查文档落盘 | ✅ 本次 | — |
+| 本审查文档落盘 | ✅ | `82f4288` |
+| **规则 12 + 文件体积门岗**（`check-file-sizes.mjs`，棘轮只减不增，接入 CI） | ✅ 已立 | `95f4510` |
+| 修 `NodeParameterControls` 条件调用 Hook 的真崩溃 bug（lint 揪出） | ✅ 已修 | `45b42af` |
+| **ESLint + Prettier + react-hooks** 宽松起步接入 CI（0 error/81 warn） | ✅ 已立 | `a05b2ff` |
+| `src/api/server.ts` → `desktopClient.ts`（消除误导命名） | ✅ 已修 | `2947ac2` |
+| 补 `micro`(11px) 字号 token（启用 `text-micro`） | ✅ 已修 | `2554e9f` |
 
-"音频自相矛盾"这条跨角色共识（P0/信任命门）已通过上面 2 个 commit 完全收口：文档、app 内文案、实际行为三者一致。
+"音频自相矛盾"这条跨角色共识（P0/信任命门）已通过 `49151d2`+`ab88a70` 完全收口：文档、app 内文案、实际行为三者一致。
+工程基建空洞（lint）+ 巨型文件无约束 两条已通过 `95f4510`+`a05b2ff` 补齐：CI 现在有「文件体积门岗 + lint」双闸门挡增量。
 
 ---
 
 ## 行动路线
 
 ### 立即（低风险高回报，无需用户决策 — 可自主推进）
-1. ✅ ~~音频文案三处一致~~（已完成）
-2. ✅ ~~S5 项目存盘原子写~~（已完成）
-3. 引入 ESLint + Prettier + `eslint-plugin-react-hooks`，先 `--max-warnings` 宽松接入 `.github/workflows/quality-gate.yml`，守住增量。
-4. `src/api/server.ts` 改名 + 同步 6 处 import（纯机械）。
-5. tailwind 补 `micro`(11px) 字号 token + 加 grep 钩子禁新增 `text-[*px]`（先挡增量，不强制回填存量）。
-6. 抽单一 `clientToCanvas()` 工具，消除 GenerationCanvas 4 处重复坐标换算（P0-2 止血，不涉及迁移决策）。
+1. ✅ ~~音频文案三处一致~~（`49151d2`+`ab88a70`）
+2. ✅ ~~S5 项目存盘原子写~~（`936582e`）
+3. ✅ ~~引入 ESLint + Prettier + react-hooks 宽松接入 CI~~（`a05b2ff`，0 error/81 warn）
+4. ✅ ~~`src/api/server.ts` 改名~~（`2947ac2`）
+5. ✅ ~~tailwind 补 `micro`(11px) 字号 token~~（`2554e9f`）；⏳ 「禁新增 `text-[*px]` 的 px 棘轮门岗」可仿 `check-file-sizes.mjs` 后补。
+6. ⏳ 抽 `clientToCanvas()` 去重 —— **暂缓**：4 处换算读的真相源不同（ref vs 响应式 vs 局部），统一会改变行为；该画布零测试、需在 App 内验证后再做，不盲改。
+7. ✅ ~~规则 12 + 文件体积门岗~~（`95f4510`，本次新增需求）。
 
 ### 中期（按规则 4 写执行文档 + 规则 7 过角色评审）
 7. 拆 `runtime.ts`（决策文档已就绪，按 6 模块逐个 commit）。
