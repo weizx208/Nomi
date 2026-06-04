@@ -75,9 +75,48 @@ try {
   try {
     await win.locator('[role="button"]', { hasText: "示例：30 秒产品介绍" }).first().click();
     await win.waitForTimeout(2500);
-    await snap(win, "studio-opened");
+    await snap(win, "studio-generate");
   } catch (e) {
     console.log("OPEN_PROJECT_ERROR:", e?.message || e);
+  }
+
+  // 零成本导航腿：依次看 创作 / 预览 / 素材库 / 模型接入
+  async function clickTab(name, tag, { escAfter = false } = {}) {
+    try {
+      await win.getByRole("button", { name, exact: false }).first().click();
+      await win.waitForTimeout(1500);
+      await snap(win, tag);
+      if (escAfter) { await win.keyboard.press("Escape"); await win.waitForTimeout(500); }
+    } catch (e) {
+      console.log(`TAB_ERROR(${tag}):`, e?.message || e);
+    }
+  }
+  await clickTab("创作", "creation");
+  await clickTab("预览", "preview");
+  await clickTab("模型接入", "model-onboarding", { escAfter: true });
+
+  // ===== 导出腿（真实 ffmpeg，写文件到项目 exports/，不花 API 额度）=====
+  try {
+    await win.getByRole("button", { name: "预览", exact: false }).first().click();
+    await win.waitForTimeout(1200);
+    await win.getByRole("button", { name: "导出 MP4", exact: false }).first().click();
+    console.log("EXPORT_CLICKED, 等待 ffmpeg…");
+    let toast = "";
+    for (let i = 0; i < 45; i++) {
+      await win.waitForTimeout(2000);
+      toast = await win.evaluate(() =>
+        Array.from(document.querySelectorAll("body *"))
+          .map((e) => (e.children.length === 0 ? (e.textContent || "").replace(/\s+/g, " ").trim() : ""))
+          .filter((t) => /导出|exports|MP4|失败|error|转码|渲染/i.test(t))
+          .slice(0, 6)
+          .join(" || "),
+      );
+      if (/已导出|exports 文件夹|失败|error/i.test(toast)) break;
+    }
+    console.log("EXPORT_STATUS:", toast || "(无明显状态文本)");
+    await snap(win, "export-done");
+  } catch (e) {
+    console.log("EXPORT_ERROR:", e?.message || e);
   }
 } catch (e) {
   console.log("WALKTHROUGH_ERROR:", e?.message || e);
