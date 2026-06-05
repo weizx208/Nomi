@@ -33,6 +33,22 @@ try {
   // 1) 主进程启动 + 渲染层加载（runtime.ts 拆分后的回归底线）
   assert((await win.title()).toLowerCase().includes("nomi"), "窗口标题含 Nomi");
 
+  // 1b) 内置模型 seed 在启动时生效（ensureBuiltinModelSeeds）——Seedance 开箱在目录里、带 archetypeId。
+  const seed = await win.evaluate(() => {
+    const mc = window.nomiDesktop?.modelCatalog;
+    if (!mc) return { ok: false };
+    const seedance = mc.listModels({ kind: "video", enabled: true }).find((m) => m.modelKey === "bytedance/seedance-2");
+    return {
+      ok: true,
+      hasKie: mc.listVendors().some((v) => v.key === "kie"),
+      archetypeId: seedance?.meta?.archetypeId ?? null,
+      hasMapping: mc.listMappings().some((mp) => mp.vendorKey === "kie" && mp.taskKind === "image_to_video"),
+    };
+  });
+  assert(seed.ok && seed.hasKie, "启动后目录里有内置 kie vendor（seed 生效）");
+  assert(seed.archetypeId === "seedance-2", "Seedance 模型在位且 meta.archetypeId=seedance-2");
+  assert(seed.hasMapping, "(kie, image_to_video) mapping 在位");
+
   // 2) 项目库渲染（渲染 → IPC listProjects → projects/repository 真实数据）
   await win.getByText("项目库", { exact: false }).first().waitFor({ timeout: 8000 });
   assert(await win.getByText("30 秒体验", { exact: false }).first().isVisible(), "项目库 hero「30 秒体验」可见");
