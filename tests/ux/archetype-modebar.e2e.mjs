@@ -80,16 +80,23 @@ try {
   await win.locator('.generation-canvas-v2-node__composer [role="group"][aria-label="生成方式"] button', { hasText: "全能参考" }).first().click();
   await win.waitForTimeout(900);
   await shot("04-omni");
-  const omniText = await win.evaluate(() => (document.querySelector(".generation-canvas-v2-node__composer")?.innerText || "").replace(/\s+/g, " "));
-  assert(/角色参考/.test(omniText), "omni：出现「角色参考」组");
-  assert(/按放入顺序编号|编号/.test(omniText), "omni：角色组说明（按放入顺序编号，不再重复 character1）");
-  assert(/参考视频/.test(omniText) && /参考音频/.test(omniText), "omni：参考视频 / 参考音频 分组小标题（U3）");
+  // 对齐样张 v4:数组参考合并成一排 tile + 一个「加参考」,无三组标签/caption(最少文字)。
+  const omniMerged = await win.evaluate(() => {
+    const comp = document.querySelector(".generation-canvas-v2-node__composer");
+    const text = comp ? (comp.innerText || "").replace(/\s+/g, " ") : "";
+    return {
+      hasMergedAdd: Boolean(comp?.querySelector('[aria-label="加参考"]')),
+      noGroupLabels: !/角色参考|参考视频|参考音频|按放入顺序编号/.test(text),
+    };
+  });
+  assert(omniMerged.hasMergedAdd, "omni：合并成一排 + 一个「加参考」(样张 v4)");
+  assert(omniMerged.noGroupLabels, "omni：无三组标签/caption(最少文字,对齐样张 v4)");
 
-  // 写一张 1x1 png 临时文件，经「+ 角色参考」菜单上传
+  // 写一张 1x1 png 临时文件，经「加参考」→ 统一选择器上传
   const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
   const tmpPng = path.join(shotsDir, "_char1.png");
   fs.writeFileSync(tmpPng, Buffer.from(pngB64, "base64"));
-  await win.locator('.generation-canvas-v2-node__composer button[aria-label="添加角色参考"]').first().click();
+  await win.locator('.generation-canvas-v2-node__composer button[aria-label="加参考"]').first().click();
   await win.waitForTimeout(400); // 等统一选择器(AssetPicker)弹出
   await win.locator('.generation-canvas-v2-node__composer input[type="file"][aria-label="上传本地文件"]').first().setInputFiles(tmpPng);
   await win.waitForTimeout(2500); // 等本地素材导入
