@@ -2,6 +2,7 @@ import React from 'react'
 import { cn } from '../../utils/cn'
 import AssetTile, { AssetAddTile } from './AssetTile'
 import AssetPicker from './AssetPicker'
+import AssetPickerPopover from './AssetPickerPopover'
 import type { AssetKind, AssetRef } from './assetTypes'
 
 // 节点侧的参考槽组件(P1.1,对齐样张 v4)。**声明式 slot 描述符驱动**(R5):一份 AssetSlot 声明「要几个
@@ -90,7 +91,7 @@ export default function AssetReference({
                   ? <AssetTile asset={displayRef(url, slot.accept, slot.label)} onRemove={() => onRemove(slot, 0)} />
                   : <AssetAddTile label={`添加${slot.label}`} selected={isOpen} onClick={() => onTogglePicker(slot.key)} />}
                 {isOpen ? (
-                  <div className={cn('absolute top-full left-0 z-[5] mt-[4px]')}>
+                  <AssetPickerPopover onClose={() => onTogglePicker(slot.key)}>
                     <AssetPicker
                       projectId={projectId}
                       accept={[slot.accept]}
@@ -98,7 +99,7 @@ export default function AssetReference({
                       onPick={(asset) => onPick(slot, asset)}
                       onUpload={(file) => onUpload(slot, file)}
                     />
-                  </div>
+                  </AssetPickerPopover>
                 ) : null}
               </div>
             )
@@ -124,7 +125,7 @@ export default function AssetReference({
             ) : null}
           </div>
           {openSlotKey === MERGED_ARRAY_KEY ? (
-            <div className={cn('absolute top-full left-0 z-[5] mt-[4px]')}>
+            <AssetPickerPopover onClose={() => onTogglePicker(MERGED_ARRAY_KEY)}>
               <AssetPicker
                 projectId={projectId}
                 accept={arrayAccepts}
@@ -132,7 +133,7 @@ export default function AssetReference({
                 onPick={(asset) => onPick(routeByKind(asset.kind), asset)}
                 onUpload={(file) => onUpload(routeByKind(kindFromFile(file)), file)}
               />
-            </div>
+            </AssetPickerPopover>
           ) : null}
         </div>
       ) : null}

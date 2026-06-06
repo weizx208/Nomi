@@ -49,7 +49,7 @@ export default function AssetPicker({ projectId, accept, onPick, onUpload, onBro
     .join(',')
 
   return (
-    <div data-testid="asset-picker" className={cn('flex flex-col gap-[10px] w-[300px] max-w-[300px] p-[10px] rounded-nomi border border-nomi-line bg-nomi-paper shadow-nomi-md', className)}>
+    <div data-testid="asset-picker" className={cn('flex flex-col gap-[10px] w-[300px] max-w-[300px] max-h-[70vh] overflow-y-auto p-[10px] rounded-nomi border border-nomi-line bg-nomi-paper shadow-nomi-md', className)}>
       <label className={cn('flex items-center gap-[6px] h-[30px] px-[8px] rounded-nomi-sm border border-nomi-line bg-nomi-ink-05')}>
         <IconSearch size={13} stroke={2} className={cn('text-nomi-ink-40 shrink-0')} />
         <input
@@ -65,8 +65,9 @@ export default function AssetPicker({ projectId, accept, onPick, onUpload, onBro
       {canvasAssets.length ? (
         <div className={cn('flex flex-col gap-[6px]')}>
           <span className={cn('text-nomi-ink-40 text-micro')}>画布</span>
-          <div className={cn('flex gap-[6px] flex-wrap')}>
-            {canvasAssets.map((asset) => <PickerItem key={asset.id} asset={asset} onPick={onPick} />)}
+          {/* 画布:单行横滚(样张 .pkRow),不换行——否则几十张图堆叠把 picker 撑到溢出视口 */}
+          <div className={cn('flex gap-[6px] overflow-x-auto pb-[2px]')}>
+            {canvasAssets.map((asset) => <div key={asset.id} className={cn('shrink-0')}><PickerItem asset={asset} onPick={onPick} /></div>)}
           </div>
         </div>
       ) : null}

@@ -98,7 +98,7 @@ try {
   fs.writeFileSync(tmpPng, Buffer.from(pngB64, "base64"));
   await win.locator('.generation-canvas-v2-node__composer button[aria-label="加参考"]').first().click();
   await win.waitForTimeout(400); // 等统一选择器(AssetPicker)弹出
-  await win.locator('.generation-canvas-v2-node__composer input[type="file"][aria-label="上传本地文件"]').first().setInputFiles(tmpPng);
+  await win.locator('input[type="file"][aria-label="上传本地文件"]').first().setInputFiles(tmpPng);
   await win.waitForTimeout(2500); // 等本地素材导入
   await shot("05-omni-char1");
   const afterUpload = await win.evaluate(() => {

@@ -107,19 +107,23 @@ try {
   await win.waitForTimeout(500);
   const p = await win.evaluate(() => {
     const comp = document.querySelector(".generation-canvas-v2-node__composer");
-    const picker = comp.querySelector('[data-testid="asset-picker"]');
+    const picker = document.querySelector('[data-testid="asset-picker"]'); // 渲染在 body(逃出 composer 裁剪)
     const cs = (el) => el ? getComputedStyle(el) : null;
     const search = picker?.querySelector('input[aria-label="搜索素材名"]')?.closest("label") || picker?.querySelector('input[aria-label="搜索素材名"]')?.parentElement;
     const item = picker?.querySelector('button[aria-label]');
     const upload = Array.from(picker?.querySelectorAll("label") || []).find((l) => /上传本地文件/.test(l.textContent));
+    const pr = picker ? picker.getBoundingClientRect() : null;
     return {
-      pickerW: picker ? Math.round(picker.getBoundingClientRect().width) : -1,
+      pickerW: pr ? Math.round(pr.width) : -1,
       pickerRadius: picker ? cs(picker).borderTopLeftRadius : "?",
       pickerPad: picker ? cs(picker).paddingTop : "?",
       pickerShadow: picker ? cs(picker).boxShadow : "?",
       searchH: search ? Math.round(search.getBoundingClientRect().height) : -1,
       itemW: item ? Math.round(item.getBoundingClientRect().width) : -1,
       uploadH: upload ? Math.round(upload.getBoundingClientRect().height) : -1,
+      // 遮挡回归:picker 是否完整在视口内(不被裁)。
+      fullyVisible: pr ? (pr.top >= -1 && pr.bottom <= window.innerHeight + 1 && pr.left >= -1 && pr.right <= window.innerWidth + 1) : false,
+      uploadVisible: upload ? (upload.getBoundingClientRect().bottom <= window.innerHeight + 1) : false,
     };
   });
   console.log("\n── 选择器(规范 §5:300宽 / 10圆角 / 48项 / 30搜索 / 34上传) ──");
@@ -129,6 +133,10 @@ try {
   assert(p.searchH === 30, "搜索框高 30", String(p.searchH));
   assert(p.itemW === 48, "picker tile 48", String(p.itemW));
   assert(p.uploadH === 34, "上传按钮高 34", String(p.uploadH));
+
+  console.log("\n── 遮挡回归(规范 §5:picker 绝不被裁、上传按钮可见) ──");
+  assert(p.fullyVisible, "picker 完整在视口内(未被 composer overflow 裁剪)", `fullyVisible=${p.fullyVisible}`);
+  assert(p.uploadVisible, "「上传本地文件」按钮可见(不被裁到视口外)", `uploadVisible=${p.uploadVisible}`);
 
   console.log(`\n设计保真：${passed} 通过，${fails.length} 不一致`);
   if (fails.length) { console.error("不一致清单:\n - " + fails.join("\n - ")); process.exitCode = 1; }
