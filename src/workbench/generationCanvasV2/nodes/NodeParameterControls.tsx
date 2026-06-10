@@ -46,6 +46,10 @@ import { showInfoToast } from '../../../utils/showInfoToast'
 import InlineParameterBar from './InlineParameterBar'
 import { useNodeModelAutoSelect } from './useNodeModelAutoSelect'
 import { resolveArchetypeForOption, resolveRenderedControls } from './nodeModelArchetype'
+import { ASPECT_RATIO_KEYS, normalizeAspectRatioToWH } from './aspectRatio'
+
+// 模块级常量：比例参数的 key 白名单（与 aspectRatio.ts 的 ASPECT_RATIO_KEYS 保持一致）。
+const ASPECT_RATIO_KEY_SET = new Set<string>(ASPECT_RATIO_KEYS)
 
 type NodeParameterControlsProps = {
   node: GenerationCanvasNode
@@ -129,8 +133,18 @@ export default function NodeParameterControls({
   })
 
   if (!isGenerationNode) return null
+
   const handleParameterControlChange = (control: ModelParameterControl, value: string) => {
-    updateMeta({ [control.key]: parseControlInput(control, value) })
+    const parsed = parseControlInput(control, value)
+    const patch: Record<string, unknown> = { [control.key]: parsed }
+    // 跨键同步：凡写任意比例 key（aspect_ratio / size / ratio / image_size），
+    // 同时把规范化后的 W:H 写进 aspect_ratio（最高优先级读取键）。
+    // 防止旧模式遗留的 stale aspect_ratio 遮蔽当前模式的比例选择（如 t2i→改图后 image_size 被旧值盖住）。
+    if (ASPECT_RATIO_KEY_SET.has(control.key)) {
+      const wh = normalizeAspectRatioToWH(parsed)
+      if (wh) patch.aspect_ratio = wh
+    }
+    updateMeta(patch)
   }
 
   const handleCatalogControlChange = (control: DynamicCatalogControl, value: string) => {
