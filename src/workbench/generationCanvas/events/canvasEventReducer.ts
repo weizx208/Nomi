@@ -2,7 +2,7 @@
 // 这就是"账本算余额"的那只手——S5-a 当 CI 安全网(replay≡snapshot 属性测试),
 // S5-b 翻正后当 hydrate/undo 的正式投影。复用 graphOps 纯算子保证与 store 同语义。
 // 未知事件类型原样跳过(前向兼容:老版本重放新日志不崩,§4.1 演进策略)。
-import { removeNodes, upsertNode } from '../model/graphOps'
+import { connectNodes, disconnectEdge, removeNodes, upsertNode } from '../model/graphOps'
 import type { GenerationCanvasEdge, GenerationCanvasNode, NodeGroup } from '../model/generationCanvasTypes'
 
 export type CanvasProjection = {
@@ -41,17 +41,84 @@ export function applyCanvasEvent(projection: CanvasProjection, event: Replayable
       }
     }
     case 'canvas.node.removed': {
+      // 只删节点+其边;组成员清理由伴随的 group.updated 后态事件表达
+      // (store 里 deleteNode 清组、deleteSelectedNodes 不清——语义必须分开如实记账)。
       const nodeId = String(payload.nodeId || '')
       if (!nodeId) return projection
       const next = removeNodes(projection.nodes, projection.edges, [nodeId])
+      return { ...projection, nodes: next.nodes, edges: next.edges }
+    }
+    case 'canvas.node.updated': {
+      const nodeId = String(payload.nodeId || '')
+      const patch = payload.patch as Record<string, unknown> | undefined
+      if (!nodeId || !patch) return projection
       return {
-        nodes: next.nodes,
-        edges: next.edges,
-        groups: projection.groups.map((group) => ({
-          ...group,
-          nodeIds: group.nodeIds.filter((candidate) => candidate !== nodeId),
-        })),
+        ...projection,
+        nodes: projection.nodes.map((node) => (node.id === nodeId ? Object.assign({ ...node }, patch) : node)),
       }
+    }
+    case 'canvas.node.ungrouped': {
+      const nodeId = String(payload.nodeId || '')
+      if (!nodeId) return projection
+      return {
+        ...projection,
+        nodes: projection.nodes.map((node) => {
+          if (node.id !== nodeId) return node
+          const next = { ...node }
+          delete (next as Record<string, unknown>).groupId
+          return next
+        }),
+      }
+    }
+    case 'canvas.edge.connected': {
+      const source = String(payload.sourceNodeId || '')
+      const target = String(payload.targetNodeId || '')
+      if (!source || !target) return projection
+      // 与 store 同一只手:graphOps.connectNodes(构造性等价)
+      return { ...projection, edges: connectNodes(projection.edges, source, target, payload.mode as GenerationCanvasEdge['mode']) }
+    }
+    case 'canvas.edge.mode-changed': {
+      const edgeId = String(payload.edgeId || '')
+      if (!edgeId) return projection
+      return {
+        ...projection,
+        edges: projection.edges.map((edge) => (edge.id === edgeId ? { ...edge, mode: payload.mode as GenerationCanvasEdge['mode'] } : edge)),
+      }
+    }
+    case 'canvas.edge.disconnected': {
+      const edgeId = String(payload.edgeId || '')
+      if (!edgeId) return projection
+      return { ...projection, edges: disconnectEdge(projection.edges, edgeId) }
+    }
+    case 'canvas.group.created': {
+      const group = payload.group as NodeGroup | undefined
+      if (!group?.id) return projection
+      return { ...projection, groups: [...projection.groups, group] }
+    }
+    case 'canvas.group.updated': {
+      const group = payload.group as NodeGroup | undefined
+      if (!group?.id) return projection
+      return { ...projection, groups: projection.groups.map((candidate) => (candidate.id === group.id ? group : candidate)) }
+    }
+    case 'canvas.group.removed': {
+      const groupId = String(payload.groupId || '')
+      if (!groupId) return projection
+      const released = new Set(Array.isArray(payload.releasedNodeIds) ? (payload.releasedNodeIds as string[]) : [])
+      return {
+        ...projection,
+        nodes: projection.nodes.map((node) => {
+          if (!released.has(node.id)) return node
+          const next = { ...node }
+          delete (next as Record<string, unknown>).groupId
+          return next
+        }),
+        groups: projection.groups.filter((candidate) => candidate.id !== groupId),
+      }
+    }
+    case 'canvas.groups.reordered': {
+      const groups = payload.groups as NodeGroup[] | undefined
+      if (!Array.isArray(groups)) return projection
+      return { ...projection, groups }
     }
     default:
       return projection

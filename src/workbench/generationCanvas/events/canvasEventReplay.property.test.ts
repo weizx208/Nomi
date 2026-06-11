@@ -13,7 +13,29 @@ type Op =
   | { kind: 'move'; pick: number; x: number; y: number }
   | { kind: 'prompt'; pick: number; text: string }
   | { kind: 'remove'; pick: number }
+  | { kind: 'patch'; pick: number; title: string }
+  | { kind: 'reassign'; pick: number; categoryId: string }
+  | { kind: 'duplicate'; pick: number }
+  | { kind: 'copyCat'; pick: number; categoryId: string }
+  | { kind: 'selectSome'; pick: number; pick2: number }
+  | { kind: 'moveSel'; dx: number; dy: number }
+  | { kind: 'delSel' }
+  | { kind: 'connect'; pickA: number; pickB: number; mode: 'reference' | 'first_frame' | 'style_ref' }
+  | { kind: 'connectPending'; pickA: number; pickB: number }
+  | { kind: 'edgeMode'; pickEdge: number; mode: 'reference' | 'last_frame' | 'character_ref' }
+  | { kind: 'disconnect'; pickEdge: number }
+  | { kind: 'groupCreate'; name: string }
+  | { kind: 'groupSelected'; name: string }
+  | { kind: 'rename'; pickGroup: number; name: string }
+  | { kind: 'setColor'; pickGroup: number; color: string }
+  | { kind: 'ungroup'; pickGroup: number }
+  | { kind: 'deleteGroup'; pickGroup: number; withNodes: boolean }
+  | { kind: 'moveToGroup'; pick: number; pickGroup: number }
+  | { kind: 'removeFromGroup'; pick: number }
+  | { kind: 'reorder'; pickGroup: number; pickGroup2: number }
+  | { kind: 'moveGroupNodes'; pickGroup: number; dx: number; dy: number }
 
+const CATEGORIES = ['shots', 'characters', 'scenes'] as const
 const opArbitrary: fc.Arbitrary<Op> = fc.oneof(
   fc.record({
     kind: fc.constant<'add'>('add'),
@@ -24,20 +46,162 @@ const opArbitrary: fc.Arbitrary<Op> = fc.oneof(
   fc.record({ kind: fc.constant<'move'>('move'), pick: fc.nat(99), x: fc.integer({ min: -2000, max: 4000 }), y: fc.integer({ min: -2000, max: 4000 }) }),
   fc.record({ kind: fc.constant<'prompt'>('prompt'), pick: fc.nat(99), text: fc.string({ maxLength: 120 }) }),
   fc.record({ kind: fc.constant<'remove'>('remove'), pick: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'patch'>('patch'), pick: fc.nat(99), title: fc.string({ maxLength: 24 }) }),
+  fc.record({ kind: fc.constant<'reassign'>('reassign'), pick: fc.nat(99), categoryId: fc.constantFrom(...CATEGORIES) }),
+  fc.record({ kind: fc.constant<'duplicate'>('duplicate'), pick: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'copyCat'>('copyCat'), pick: fc.nat(99), categoryId: fc.constantFrom(...CATEGORIES) }),
+  fc.record({ kind: fc.constant<'selectSome'>('selectSome'), pick: fc.nat(99), pick2: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'moveSel'>('moveSel'), dx: fc.integer({ min: -300, max: 300 }), dy: fc.integer({ min: -300, max: 300 }) }),
+  fc.record({ kind: fc.constant<'delSel'>('delSel') }),
+  fc.record({ kind: fc.constant<'connect'>('connect'), pickA: fc.nat(99), pickB: fc.nat(99), mode: fc.constantFrom<'reference' | 'first_frame' | 'style_ref'>('reference', 'first_frame', 'style_ref') }),
+  fc.record({ kind: fc.constant<'connectPending'>('connectPending'), pickA: fc.nat(99), pickB: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'edgeMode'>('edgeMode'), pickEdge: fc.nat(99), mode: fc.constantFrom<'reference' | 'last_frame' | 'character_ref'>('reference', 'last_frame', 'character_ref') }),
+  fc.record({ kind: fc.constant<'disconnect'>('disconnect'), pickEdge: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'groupCreate'>('groupCreate'), name: fc.string({ maxLength: 12 }) }),
+  fc.record({ kind: fc.constant<'groupSelected'>('groupSelected'), name: fc.string({ maxLength: 12 }) }),
+  fc.record({ kind: fc.constant<'rename'>('rename'), pickGroup: fc.nat(99), name: fc.string({ minLength: 1, maxLength: 12 }) }),
+  fc.record({ kind: fc.constant<'setColor'>('setColor'), pickGroup: fc.nat(99), color: fc.constantFrom('red', 'blue', 'green') }),
+  fc.record({ kind: fc.constant<'ungroup'>('ungroup'), pickGroup: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'deleteGroup'>('deleteGroup'), pickGroup: fc.nat(99), withNodes: fc.boolean() }),
+  fc.record({ kind: fc.constant<'moveToGroup'>('moveToGroup'), pick: fc.nat(99), pickGroup: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'removeFromGroup'>('removeFromGroup'), pick: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'reorder'>('reorder'), pickGroup: fc.nat(99), pickGroup2: fc.nat(99) }),
+  fc.record({ kind: fc.constant<'moveGroupNodes'>('moveGroupNodes'), pickGroup: fc.nat(99), dx: fc.integer({ min: -300, max: 300 }), dy: fc.integer({ min: -300, max: 300 }) }),
 )
 
 function applyOp(op: Op): void {
   const store = useGenerationCanvasStore.getState()
   const nodes = store.nodes
-  if (op.kind === 'add') {
-    store.addNode({ kind: op.nodeKind, title: op.title || 'n', prompt: op.prompt })
-    return
+  const edges = store.edges
+  const groups = store.groups
+  const pickNode = (index: number) => (nodes.length ? nodes[index % nodes.length] : undefined)
+  const pickGroup = (index: number) => (groups.length ? groups[index % groups.length] : undefined)
+  switch (op.kind) {
+    case 'add':
+      store.addNode({ kind: op.nodeKind, title: op.title || 'n', prompt: op.prompt })
+      return
+    case 'move': {
+      const target = pickNode(op.pick)
+      if (target) store.moveNode(target.id, { x: op.x, y: op.y })
+      return
+    }
+    case 'prompt': {
+      const target = pickNode(op.pick)
+      if (target) store.updateNodePrompt(target.id, op.text)
+      return
+    }
+    case 'remove': {
+      const target = pickNode(op.pick)
+      if (target) store.deleteNode(target.id)
+      return
+    }
+    case 'patch': {
+      const target = pickNode(op.pick)
+      if (target) store.updateNode(target.id, { title: op.title })
+      return
+    }
+    case 'reassign': {
+      const target = pickNode(op.pick)
+      if (target) store.reassignNodeCategory(target.id, op.categoryId)
+      return
+    }
+    case 'duplicate': {
+      const target = pickNode(op.pick)
+      if (target) store.duplicateNodeForRegeneration(target.id)
+      return
+    }
+    case 'copyCat': {
+      const target = pickNode(op.pick)
+      if (target) store.copyNodeToCategory(target.id, op.categoryId)
+      return
+    }
+    case 'selectSome': {
+      const a = pickNode(op.pick)
+      const b = pickNode(op.pick2)
+      if (a) store.selectNode(a.id)
+      if (b && b.id !== a?.id) store.selectNode(b.id, true)
+      return
+    }
+    case 'moveSel':
+      store.moveSelectedNodes({ x: op.dx, y: op.dy })
+      return
+    case 'delSel':
+      store.deleteSelectedNodes()
+      return
+    case 'connect': {
+      const a = pickNode(op.pickA)
+      const b = pickNode(op.pickB)
+      if (a && b && a.id !== b.id) store.connectNodes(a.id, b.id, op.mode)
+      return
+    }
+    case 'connectPending': {
+      const a = pickNode(op.pickA)
+      const b = pickNode(op.pickB)
+      if (a && b && a.id !== b.id) {
+        store.startConnection(a.id)
+        store.connectToNode(b.id)
+      }
+      return
+    }
+    case 'edgeMode': {
+      const edge = edges.length ? edges[op.pickEdge % edges.length] : undefined
+      if (edge) store.updateEdgeMode(edge.id, op.mode)
+      return
+    }
+    case 'disconnect': {
+      const edge = edges.length ? edges[op.pickEdge % edges.length] : undefined
+      if (edge) store.disconnectEdge(edge.id)
+      return
+    }
+    case 'groupCreate':
+      store.createGroup('shots', op.name)
+      return
+    case 'groupSelected':
+      store.groupSelectedNodes('shots', op.name)
+      return
+    case 'rename': {
+      const group = pickGroup(op.pickGroup)
+      if (group) store.renameGroup(group.id, op.name)
+      return
+    }
+    case 'setColor': {
+      const group = pickGroup(op.pickGroup)
+      if (group) store.setGroupColor(group.id, op.color)
+      return
+    }
+    case 'ungroup': {
+      const group = pickGroup(op.pickGroup)
+      if (group) store.ungroup(group.id)
+      return
+    }
+    case 'deleteGroup': {
+      const group = pickGroup(op.pickGroup)
+      if (group) store.deleteGroup(group.id, op.withNodes)
+      return
+    }
+    case 'moveToGroup': {
+      const target = pickNode(op.pick)
+      const group = pickGroup(op.pickGroup)
+      if (target && group) store.moveNodeToGroup(target.id, group.id)
+      return
+    }
+    case 'removeFromGroup': {
+      const target = pickNode(op.pick)
+      if (target) store.removeNodeFromGroup(target.id)
+      return
+    }
+    case 'reorder': {
+      const a = pickGroup(op.pickGroup)
+      const b = pickGroup(op.pickGroup2)
+      if (a && b && a.id !== b.id) store.reorderGroup('shots', a.id, b.id)
+      return
+    }
+    case 'moveGroupNodes': {
+      const group = pickGroup(op.pickGroup)
+      if (group) store.moveGroupNodes(group.id, { x: op.dx, y: op.dy })
+      return
+    }
   }
-  if (nodes.length === 0) return
-  const target = nodes[op.pick % nodes.length]
-  if (op.kind === 'move') store.moveNode(target.id, { x: op.x, y: op.y })
-  else if (op.kind === 'prompt') store.updateNodePrompt(target.id, op.text)
-  else store.deleteNode(target.id)
 }
 
 describe('S5-a replay ≡ snapshot(属性测试,CI 安全网)', () => {

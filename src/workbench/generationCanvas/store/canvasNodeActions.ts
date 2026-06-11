@@ -38,12 +38,14 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
     })
   },
   updateNode: (nodeId, patch, options) => {
+    if (!get().nodes.some((candidate) => candidate.id === nodeId)) return
     set((state) => {
       const node = state.nodes.find((candidate) => candidate.id === nodeId)
       if (!node) return
       Object.assign(node, patch)
       if (shouldPersistCanvasMutation(options)) bumpPersistRevision(state)
     })
+    emitCanvasGesture([{ type: 'canvas.node.updated', payload: { nodeId, patch } }])
   },
   updateNodePrompt: (nodeId, prompt) => {
     if (!get().nodes.some((candidate) => candidate.id === nodeId)) return
@@ -82,10 +84,20 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
       }
       if (moved && shouldPersistCanvasMutation(options)) bumpPersistRevision(state)
     })
+    // 后态读取:每个被移动节点一条 moved,共享一个手势 txn
+    const selected = new Set(get().selectedNodeIds)
+    if (selected.size && (delta.x !== 0 || delta.y !== 0)) {
+      emitCanvasGesture(
+        get().nodes
+          .filter((node) => selected.has(node.id))
+          .map((node) => ({ type: 'canvas.node.moved', payload: { nodeId: node.id, position: node.position } })),
+      )
+    }
   },
   deleteSelectedNodes: () => {
     const currentState = get()
     if (!currentState.selectedNodeIds.length) return
+    const removedIds = [...currentState.selectedNodeIds]
     pushUndoSnapshot(currentState)
     set((state) => {
       const next = removeNodes(state.nodes, state.edges, state.selectedNodeIds)
@@ -95,6 +107,7 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
       bumpPersistRevision(state)
       Object.assign(state, getHistoryFlags())
     })
+    emitCanvasGesture(removedIds.map((nodeId) => ({ type: 'canvas.node.removed', payload: { nodeId } })))
   },
   selectNode: (nodeId, additive = false) => {
     set((state) => {
@@ -164,11 +177,20 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
       bumpPersistRevision(current)
       Object.assign(current, getHistoryFlags())
     })
+    // 一笔手势三件事如实记账:原节点补 history、新节点诞生、组成员变化(后态)
+    const touchedGroup = copiedNode.groupId ? get().groups.find((group) => group.id === copiedNode.groupId) : undefined
+    emitCanvasGesture([
+      ...(history.length ? [{ type: 'canvas.node.updated', payload: { nodeId, patch: { history } } }] : []),
+      { type: 'canvas.node.added', payload: { node: copiedNode } },
+      ...(touchedGroup ? [{ type: 'canvas.group.updated', payload: { group: touchedGroup } }] : []),
+    ])
     return copiedNode
   },
   reassignNodeCategory: (nodeId, categoryId) => {
     const id = String(categoryId || '').trim()
     if (!isCategoryId(id)) return
+    const existing = get().nodes.find((candidate) => candidate.id === nodeId)
+    if (!existing || existing.categoryId === id) return
     set((state) => {
       const node = state.nodes.find((candidate) => candidate.id === nodeId)
       if (!node) return
@@ -176,6 +198,7 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
       node.categoryId = id
       bumpPersistRevision(state)
     })
+    emitCanvasGesture([{ type: 'canvas.node.updated', payload: { nodeId, patch: { categoryId: id } } }])
   },
   copyNodeToCategory: (nodeId, categoryId) => {
     const id = String(categoryId || '').trim()
@@ -206,6 +229,7 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
       bumpPersistRevision(state)
       Object.assign(state, getHistoryFlags())
     })
+    emitCanvasGesture([{ type: 'canvas.node.added', payload: { node: copiedNode } }])
     return copiedNode
   },
   deleteNode: (nodeId) => {
@@ -224,6 +248,12 @@ export const createCanvasNodeActions: CanvasSliceCreator<CanvasNodeActions> = (s
       bumpPersistRevision(state)
       Object.assign(state, getHistoryFlags())
     })
-    emitCanvasGesture([{ type: 'canvas.node.removed', payload: { nodeId } }])
+    // node.removed 只表达"删节点+其边"(deleteSelectedNodes 不清组,语义须分开);
+    // 本 action 还清理了组成员 → 发受影响组的后态(影子期不改 store 行为,只如实记账)。
+    const touchedGroups = get().groups.filter((group) => current.groups.some((before) => before.id === group.id && before.nodeIds.includes(nodeId)))
+    emitCanvasGesture([
+      { type: 'canvas.node.removed', payload: { nodeId } },
+      ...touchedGroups.map((group) => ({ type: 'canvas.group.updated', payload: { group } })),
+    ])
   },
 })
