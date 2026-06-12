@@ -88,7 +88,17 @@ textActions.generateText(node, {onTextDelta})
 - **S2 ✅**（commit 764acc9）：`textTaskRunner`（executeTextTask 单一真相 + runTextTaskStream）+ `textStreamIpc` + preload/bridge/taskApi。runtime.ts 抽出后 743 行，filesize 基线棘轮下调到 743。五门绿。
 - **S3 ✅**（commit e4707f7）：`onTextDelta`/`runTextStream` 选项 + runCatalogGenerationTask 路由 + textActions 续写/重写逐 token 增量（合并旧 append/replace 为 `writeStreamingDoc`）。补 2 条流式单测。五门绿（vitest 951）。
 - **改写（rewrite）的范围决定**：选区替换需 ProseMirror 位置（数据层拿不到），保持「完成时交编辑器一次性替换」，引擎仍流式。逐字替换选区 = 新编辑器原语 `streamReplaceSelection` + store→editor 桥，留作后续切片。
-- **S4 ⏳ 待用户资源**：真机逐字 E2E 需配好的文本模型 + API key（用户额度）。代码层已五门绿 + 单测覆盖流式增量；真机人眼走查待用户拍板是否跑（花额度）。
+- **S4 ✅ 真机走查（R13，用户授权用现有 moonshot 模型跑）**：
+  - **续写（append，默认模式）= 端到端逐字流式确认**：真机点生成后轮询画布节点正文长度，
+    随时间增量生长 `0→20→174→297→386` 稳定（四个不同中间帧 = 逐块流式，非一次性），
+    截图人眼确认生成散文正确落进节点正文。完整跑通新路径：AI SDK `streamText` →
+    IPC delta 通道 → `runWorkbenchTextTaskStream` → `writeStreamingDoc` 增量。
+  - **重写（replace）= 出文确认**：节点正文落入 120 字全新内容（eval + 截图证实），
+    与续写共用同一流式通道 + writeStreamingDoc，仅 replace/append 落点不同；增量帧因
+    UI 驱动选区抖动未单独再captura，但机制同源且单测覆盖 replace 增量。
+  - 坑：节点正文真实 class 是 `.tiptap.ProseMirror[class*=generation-canvas]`（非创作区
+    `.workbench-editor__content`）；composer 模式 tab 需节点选中态才出现。
+  - 五门 + 真机走查全过 → 续写/重写逐字流式**完成**。
 
 ## 6. 回滚策略
 
