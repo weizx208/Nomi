@@ -51,6 +51,34 @@ try {
   if (lib.noCoverChecked > 0) assert(lib.leaked === 0, "无封面卡项目名不漏进缩略图（名称只在下方一次）", `leaked=${lib.leaked}/checked=${lib.noCoverChecked}`);
   else console.log("  ⊘ 无封面项目卡核对 — 跳过（当前库内项目都有封面）");
 
+  // ── 起始页 v3（O2 动作卡片）：主入口层级 + 单一模型入口互斥 ──
+  // 规范：docs/design/2026-06-12-start-page-onboarding-v3-spec.md §3 A 屏。
+  // 显式等主入口渲染（项目列表走 IPC，固定 sleep 会赌时序 → flake）。
+  await win.locator(".tc-action-card, [data-try-now-hero-cta]").first().waitFor({ timeout: 10000 });
+  const start = await win.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll(".tc-action-card"));
+    const primary = cards.filter((el) => el.dataset.variant === "primary");
+    const rect = primary[0]?.getBoundingClientRect() || null;
+    const banner = document.querySelector("[data-model-banner]");
+    const weakEntry = Array.from(document.querySelectorAll("button"))
+      .find((el) => (el.textContent || "").trim() === "模型接入");
+    return {
+      cardCount: cards.length,
+      primaryCount: primary.length,
+      primaryW: rect ? Math.round(rect.width) : -1,
+      primaryH: rect ? Math.round(rect.height) : -1,
+      bannerShown: Boolean(banner),
+      weakEntryShown: Boolean(weakEntry),
+      weakEntryH: weakEntry ? Math.round(weakEntry.getBoundingClientRect().height) : -1,
+    };
+  });
+  console.log("\n── 起始页 v3（动作卡片层级 / 单一模型入口） ──");
+  assert(start.primaryCount === 1, "主入口动作卡片恰好 1 张 primary（一页一主操作）", `primary=${start.primaryCount}/cards=${start.cardCount}`);
+  assert(start.primaryW === 280 && start.primaryH === 88, "primary 动作卡 280×88（尺寸区隔于普通按钮）", `${start.primaryW}×${start.primaryH}`);
+  assert(!(start.bannerShown && start.weakEntryShown), "缺模型状态条与右上弱入口互斥（单一入口）", `banner=${start.bannerShown}/weak=${start.weakEntryShown}`);
+  if (start.weakEntryShown) assert(start.weakEntryH === 28, "模型接入弱钮高 28（弱于动作卡两级）", String(start.weakEntryH));
+  else console.log("  ⊘ 弱入口高度核对 — 跳过（当前为缺模型态，弱入口按规则隐藏）");
+
   await win.locator('[role="button"]', { hasText: "示例：30 秒产品介绍" }).first().click();
   await win.waitForTimeout(2500);
   await win.getByRole("button", { name: "生成", exact: false }).first().click().catch(() => {});
@@ -297,7 +325,8 @@ try {
   assert(assetLib.tabCount === 4 && assetLib.tabRows === 1, "分段筛选 4 标签同一行（不折行）", `tabs=${assetLib.tabCount}/rows=${assetLib.tabRows}`);
   assert(assetLib.inViewport, "素材库面板完整在视口内（不溢出/不被裁）", `inViewport=${assetLib.inViewport}`);
 
-  // ── 本会话回归点 #C(预览控制条)：导出MP4/安全框 单行(高28不折行) + 画幅/显示 select 值不截断(无 …) ──
+  // ── 本会话回归点 #C(预览控制条)：导出MP4 单行(高28不折行) + 画幅/显示 select 值不截断(无 …) ──
+  // 「安全框」按钮已在 b74d09c 整体删除（chop），相关断言一并删（断言对齐产品现状，不留陈旧红）。
   await win.keyboard.press("Escape").catch(() => {}); // 关素材库面板
   await win.waitForTimeout(300);
   await win.getByRole("button", { name: "预览", exact: false }).first().click().catch(() => {});
@@ -305,38 +334,76 @@ try {
   const prev = await win.evaluate(() => {
     const bar = document.querySelector('[aria-label="预览控制"]');
     const exportBtn = document.querySelector('[aria-label="导出 MP4"]');
-    const safeBtn = document.querySelector('[aria-label="切换安全框"]');
     // NomiSelect 触发里的值 span（truncate）：scrollWidth>clientWidth 即被截断成 …。
     const valueSpan = (chip) => chip?.querySelector("span.truncate") || null;
     const aspectChip = document.querySelector('[aria-label="预览画幅"]');
     const fitChip = document.querySelector('[aria-label="画面适配"]');
     const truncated = (chip) => { const s = valueSpan(chip); return s ? (s.scrollWidth > s.clientWidth + 1) : false; };
     const barRect = bar ? bar.getBoundingClientRect() : null;
-    const safeRect = safeBtn ? safeBtn.getBoundingClientRect() : null;
     return {
       barPresent: Boolean(bar),
       exportH: exportBtn ? exportBtn.offsetHeight : -1,
-      safeH: safeBtn ? safeBtn.offsetHeight : -1,
       aspectTruncated: truncated(aspectChip),
       fitTruncated: truncated(fitChip),
       aspectText: valueSpan(aspectChip)?.textContent?.trim() || "",
       fitText: valueSpan(fitChip)?.textContent?.trim() || "",
       // 控制条横向无溢出（不该再有 overflow-x 滚动条「杠」）。
       barOverflowsX: bar ? (bar.scrollWidth > bar.clientWidth + 1) : true,
-      // 「安全框」（最后一项）完整在视口内、右缘没被 stage overflow-hidden 裁掉。
-      safeInViewport: safeRect ? (safeRect.right <= window.innerWidth + 1 && safeRect.left >= -1) : false,
       barInViewport: barRect ? (barRect.left >= -1 && barRect.right <= window.innerWidth + 1) : false,
     };
   });
-  console.log("\n── 预览控制条(#C：导出/安全框单行高28 + 不截断 + 不裁不溢出) ──");
+  console.log("\n── 预览控制条(#C：导出单行高28 + 不截断 + 不裁不溢出) ──");
   assert(prev.barPresent, "预览控制条已渲染", `barPresent=${prev.barPresent}`);
   assert(prev.exportH === 28, "「导出 MP4」单行（高 28，不折两行）", String(prev.exportH));
-  assert(prev.safeH === 28, "「安全框」单行（高 28，不折两行）", String(prev.safeH));
   assert(!prev.aspectTruncated, "画幅 select 值不被截断（无 …）", `${prev.aspectText}/truncated=${prev.aspectTruncated}`);
   assert(!prev.fitTruncated, "显示 select 值不被截断（无 …）", `${prev.fitText}/truncated=${prev.fitTruncated}`);
   assert(!prev.barOverflowsX, "控制条横向无溢出（无多余滚动条「杠」）", `overflowsX=${prev.barOverflowsX}`);
-  assert(prev.safeInViewport, "「安全框」完整在视口内（不被 stage 裁掉）", `safeInViewport=${prev.safeInViewport}`);
   assert(prev.barInViewport, "控制条整体在视口内（不溢出/不被裁）", `barInViewport=${prev.barInViewport}`);
+
+  // ── 工作台三步引导（v3 spec C 屏）：零额度走完整 tour ──
+  // 推进只依赖 workspaceMode/节点数，不点「拆镜头」（那是真实 LLM 调用）。
+  // 当前在预览区 → 先切回创作，再清标记 + 派请求事件激活。
+  await win.getByRole("button", { name: "创作", exact: false }).first().click().catch(() => {});
+  await win.waitForTimeout(800);
+  await win.evaluate(() => {
+    window.localStorage.removeItem("nomi:tour:v1");
+    window.dispatchEvent(new CustomEvent("nomi-workbench-tour-request"));
+  });
+  await win.waitForTimeout(800);
+  const tourGeom = async () => win.evaluate(() => {
+    const callout = document.querySelector("[data-workbench-tour-callout]");
+    const ring = document.querySelector("[data-workbench-tour-ring]");
+    if (!callout || !ring) return { present: false };
+    const c = callout.getBoundingClientRect();
+    const r = ring.getBoundingClientRect();
+    const overlap = !(c.right <= r.left || c.left >= r.right || c.bottom <= r.top || c.top >= r.bottom);
+    const inViewport = c.left >= 0 && c.top >= 0 && c.right <= window.innerWidth && c.bottom <= window.innerHeight;
+    return { present: true, overlap, inViewport, title: callout.textContent || "" };
+  });
+  let tour = await tourGeom();
+  console.log("\n── 工作台三步引导 ──");
+  assert(tour.present, "第 1 步 callout + 焦点环渲染", JSON.stringify(tour));
+  if (tour.present) {
+    assert(!tour.overlap, "第 1 步 callout 不遮挡焦点元素", `overlap=${tour.overlap}`);
+    assert(tour.inViewport, "第 1 步 callout 完整在视口内", `inViewport=${tour.inViewport}`);
+    assert(tour.title.includes("先有故事"), "第 1 步文案锚定创作", tour.title.slice(0, 40));
+    // 推进 = 真实模式切换（用户点 stepper 与点「拆镜头」走同一条 setWorkspaceMode 路径）
+    await win.getByRole("button", { name: "生成", exact: false }).first().click();
+    await win.waitForTimeout(900);
+    tour = await tourGeom();
+    assert(tour.present && !tour.overlap, "第 2 步 callout 跟随生成区且不遮挡", JSON.stringify({ present: tour.present, overlap: tour.overlap }));
+    await win.getByRole("button", { name: "预览", exact: false }).first().click();
+    await win.waitForTimeout(900);
+    tour = await tourGeom();
+    assert(tour.present && tour.title.includes("连起来看"), "第 3 步锚定导出", tour.title.slice(0, 40));
+    await win.locator("[data-workbench-tour-callout] button", { hasText: "开始创作" }).first().click().catch(() => {});
+    await win.waitForTimeout(400);
+    const after = await win.evaluate(() => ({
+      gone: !document.querySelector("[data-workbench-tour-callout]"),
+      flag: window.localStorage.getItem("nomi:tour:v1"),
+    }));
+    assert(after.gone && after.flag === "done", "完成后 callout 消失且写入 done 标记", JSON.stringify(after));
+  }
 
   console.log(`\n设计保真：${passed} 通过，${fails.length} 不一致`);
   if (fails.length) { console.error("不一致清单:\n - " + fails.join("\n - ")); process.exitCode = 1; }

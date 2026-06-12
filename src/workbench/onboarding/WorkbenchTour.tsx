@@ -90,17 +90,20 @@ export function WorkbenchTour(): JSX.Element | null {
   const setWorkspaceMode = useWorkbenchStore((state) => state.setWorkspaceMode)
   const canvasNodeCount = useGenerationCanvasStore((state) => state.nodes.length)
 
-  // 启动：消费 pending 请求（tryExample 在本组件挂载前就会发）+ 监听后续请求。
+  // 启动：挂载时消费 pending（tryExample 在本组件挂载前就会发请求）；挂载后收到
+  // 事件即视为显式请求（pending 只为补挂载时序，不是事件的前置条件）。
   React.useEffect(() => {
-    const tryActivate = () => {
-      if (!consumeWorkbenchTourRequest()) return
+    const tryActivate = (viaEvent: boolean) => {
+      const requested = consumeWorkbenchTourRequest() || viaEvent
+      if (!requested) return
       if (readWorkbenchTourFlag()) return
       setStep(1)
       setActive(true)
     }
-    tryActivate()
-    window.addEventListener(WORKBENCH_TOUR_REQUEST_EVENT, tryActivate)
-    return () => window.removeEventListener(WORKBENCH_TOUR_REQUEST_EVENT, tryActivate)
+    tryActivate(false)
+    const handleEvent = () => tryActivate(true)
+    window.addEventListener(WORKBENCH_TOUR_REQUEST_EVENT, handleEvent)
+    return () => window.removeEventListener(WORKBENCH_TOUR_REQUEST_EVENT, handleEvent)
   }, [])
 
   // 步骤推进 = 跟随真实模式切换（点「拆镜头」会切 generation；用户自己点 stepper 同样推进）。
@@ -177,11 +180,15 @@ export function WorkbenchTour(): JSX.Element | null {
 
   return (
     <>
-      {/* spotlight 焦点环：盖在锚点上方，不拦截点击 */}
+      {/* spotlight 焦点环：盖在锚点上方，不拦截点击。圆角随目标自适应：
+          chip/按钮（矮目标）用 pill，节点卡这类大块用标准圆角——pill 套大矩形会变巨型椭圆 */}
       <div
         data-workbench-tour-ring="true"
         aria-hidden="true"
-        className="fixed z-[3500] pointer-events-none rounded-pill outline outline-2 outline-nomi-accent outline-offset-2"
+        className={cn(
+          'fixed z-[3500] pointer-events-none outline outline-2 outline-nomi-accent outline-offset-2',
+          target.height <= 44 ? 'rounded-pill' : 'rounded-nomi',
+        )}
         style={{ left: target.left, top: target.top, width: target.width, height: target.height }}
       />
       <div
