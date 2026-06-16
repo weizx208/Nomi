@@ -44,7 +44,6 @@ import {
 import { resolveReferenceSlots, decideArrayReferenceRemoval } from '../runner/referenceSlots'
 import { specializeArchetypeForVariant } from '../../../config/modelArchetypes'
 import ModeBar from './controls/ModeBar'
-import VariantBar from './controls/VariantBar'
 import AssetReference, { type AssetSlot } from '../../assets/AssetReference'
 import type { AssetRef } from '../../assets/assetTypes'
 import { moveArrayItem } from '../../assets/assetTypes'
@@ -435,12 +434,16 @@ export default function NodeParameterControls({
         onModelChange={handleModelChange}
         onCatalogControlChange={handleCatalogControlChange}
         onParameterControlChange={handleParameterControlChange}
+        variantChoices={showVariantBar ? variantChoices : []}
+        activeVariantId={activeVariantId}
+        onVariantSelect={handleVariantSwitch}
       />
     )
   }
 
-  // 模式/型号分段切换要常驻（即便当前模式无参考槽，如纯文生）——有 modeBar / variantBar / 数组槽 / 源视频槽都不空返回。
-  if (section === 'references' && imageUrlSlots.length === 0 && arraySlots.length === 0 && !sourceVideoSlot && !showModeBar && !showVariantBar) return null
+  // 模式分段切换要常驻（即便当前模式无参考槽，如纯文生）——有 modeBar / 数组槽 / 源视频槽都不空返回。
+  // 变体（型号）已从这里挪到底栏 InlineParameterBar 的小下拉（用户拍板：和模型并排在最下面），不再占顶部一排。
+  if (section === 'references' && imageUrlSlots.length === 0 && arraySlots.length === 0 && !sourceVideoSlot && !showModeBar) return null
 
   // 走到这里只剩 section="references"（parameters/settings 已提前 return；旧的 all/model/controls 网格
   // 渲染随设置弹层落地而删除——参数现在进设置弹层，模型进底栏芯片，不再有这套裸值网格，Rule 1/12）。
@@ -448,10 +451,6 @@ export default function NodeParameterControls({
 
   return (
     <div className={rootClassName} aria-label="参考素材">
-      {showReferences && showVariantBar ? (
-        <VariantBar choices={variantChoices} activeId={activeVariantId} onSelect={handleVariantSwitch} />
-      ) : null}
-
       {showReferences && showModeBar ? (
         <ModeBar choices={modeChoices} activeId={archMode?.id || ''} onSelect={handleModeSwitch} />
       ) : null}

@@ -25,6 +25,10 @@ type InlineParameterBarProps = {
   onModelChange: (value: string) => void
   onCatalogControlChange: (control: DynamicCatalogControl, value: string) => void
   onParameterControlChange: (control: ModelParameterControl, value: string) => void
+  /** 变体（型号）小下拉：和模型芯片并排在底栏（用户拍板）。无变体的模型传空数组 → 不显示。 */
+  variantChoices?: readonly { id: string; label: string }[]
+  activeVariantId?: string
+  onVariantSelect?: (id: string) => void
 }
 
 // section="parameters"：底栏 = 模型芯片 + 该模型**所有参数横排内联**（每个带小标签的 pill）。
@@ -38,6 +42,9 @@ export default function InlineParameterBar({
   onModelChange,
   onCatalogControlChange,
   onParameterControlChange,
+  variantChoices,
+  activeVariantId,
+  onVariantSelect,
 }: InlineParameterBarProps): JSX.Element {
   if (modelOptions.length === 0) {
     return (
@@ -123,6 +130,16 @@ export default function InlineParameterBar({
         options={modelOptions.map((option) => ({ value: option.value, label: option.label }))}
         onChange={(v) => onModelChange(v)}
       />
+      {/* 变体（型号）小下拉：紧跟模型芯片。有变体的模型(Seedance:标准/快速/真人/真人快速)才显示；无变体不占位。 */}
+      {variantChoices && variantChoices.length > 1 ? (
+        <NomiSelect
+          ariaLabel="变体"
+          leadingLabel="变体"
+          value={activeVariantId || ''}
+          options={variantChoices.map((v) => ({ value: v.id, label: v.label }))}
+          onChange={(v) => onVariantSelect?.(v)}
+        />
+      ) : null}
       {/* 该模型的标量参数：横排内联，每个带标签，全可见 */}
       {renderedControls.map((control) => renderInlineParam(control))}
     </div>
