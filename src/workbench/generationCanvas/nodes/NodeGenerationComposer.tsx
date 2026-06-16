@@ -205,7 +205,7 @@ export default function NodeGenerationComposer({ node, visualSize }: Props): JSX
       <div
         className={cn(
           'generation-canvas-v2-node__composer-card',
-          'flex flex-col gap-[11px] p-[12px] min-h-[150px] min-w-[360px]',
+          'flex flex-col gap-2.5 p-3 min-h-[150px] min-w-[360px]',
           // 宽度由 cardWidth（实测参数行宽度）确定 → 参数横排一行全显示、要多宽给多宽，且 tile/提示词不塌不爆。
           'border border-nomi-line rounded-nomi bg-nomi-paper overflow-hidden shadow-nomi-md',
           'transition-[outline-color] duration-150',
