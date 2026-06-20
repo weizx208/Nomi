@@ -15,7 +15,7 @@ import path from "node:path";
 
 const DIR = "/tmp/nomi-ui";
 const [action, ...rest] = process.argv.slice(2);
-if (!action) { console.error("用法: node tests/ux/ui.mjs <snap|shot|click|fill|eval|wait|quit> ..."); process.exit(1); }
+if (!action) { console.error("用法: node tests/ux/ui.mjs <snap|shot|click|fill|eval|wait|quit|probe-latency|fps-start|fps-stop|density|contrast> ..."); process.exit(1); }
 if (!fs.existsSync(path.join(DIR, "ready"))) {
   console.error("驱动未就绪。先后台启动: node tests/ux/ui-driver.mjs");
   process.exit(2);
@@ -29,6 +29,8 @@ else if (action === "eval") cmd.js = rest.join(" ");
 else if (action === "drag") { cmd.x1 = Number(rest[0]); cmd.y1 = Number(rest[1]); cmd.x2 = Number(rest[2]); cmd.y2 = Number(rest[3]); cmd.steps = Number(rest[4] || 12); }
 else if (action === "move") { cmd.x = Number(rest[0]); cmd.y = Number(rest[1]); }
 else if (action === "wait") cmd.ms = Number(rest[0] || 500);
+else if (action === "probe-latency") { cmd.target = rest[0]; cmd.name = rest[1]; cmd.wait = Number(rest[2] || 1800); }
+else if (action === "contrast") cmd.sel = rest.join(" ");
 
 const resP = path.join(DIR, "res.json");
 fs.rmSync(resP, { force: true });

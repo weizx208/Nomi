@@ -52,6 +52,72 @@ function getWin() {
   win = pickLiveWin();
   return win;
 }
+// ── E5 体验探针（页面侧）：延迟 / 帧率 / 认知密度 / 对比度。注入式，不改产品行为。
+// 见 docs/plan/2026-06-20-experience-feel-audit.md §3。
+const PROBE_SRC = `(() => {
+  if (window.__nomiProbe) return 'exists';
+  // 任意 CSS 颜色（含 oklch/hsl/var）→ 真实 RGBA：靠 canvas 渲染回读，不靠正则猜格式。
+  const _cv = document.createElement('canvas'); _cv.width = _cv.height = 1; const _ctx = _cv.getContext('2d', { willReadFrequently: true });
+  const toRGBA = (s) => { _ctx.clearRect(0,0,1,1); _ctx.fillStyle = '#000000'; _ctx.fillStyle = String(s||''); _ctx.fillRect(0,0,1,1); const d = _ctx.getImageData(0,0,1,1).data; return [d[0], d[1], d[2], d[3]]; };
+  const overWhite = (c) => { const a = c[3]/255; return [Math.round(c[0]*a + 255*(1-a)), Math.round(c[1]*a + 255*(1-a)), Math.round(c[2]*a + 255*(1-a))]; };
+  const relLum = (c) => { const [r,g,b] = c.map((v) => { v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); }); return 0.2126*r + 0.7152*g + 0.0722*b; };
+  const loadingHit = (n, rec) => {
+    if (!(n instanceof Element)) return;
+    const raw = n.className; const cls = String(raw && raw.baseVal !== undefined ? raw.baseVal : (raw || ''));
+    if (/skeleton|shimmer|animate-pulse/i.test(cls)) rec.sawSkeleton = true;
+    if (/spinner|loading|loader|animate-spin/i.test(cls)) rec.sawSpinner = true;
+    if ((n.getAttribute && n.getAttribute('role') === 'progressbar') || /progress/i.test(cls)) rec.sawProgress = true;
+  };
+  window.__nomiProbe = {
+    startLatency() {
+      const rec = { t0: performance.now(), first: null, last: performance.now(), mutations: 0, sawSkeleton: false, sawSpinner: false, sawProgress: false };
+      const mo = new MutationObserver((muts) => {
+        const now = performance.now();
+        if (rec.first === null) rec.first = now;
+        rec.last = now; rec.mutations += muts.length;
+        for (const m of muts) { loadingHit(m.target, rec); m.addedNodes && m.addedNodes.forEach((x) => loadingHit(x, rec)); }
+      });
+      mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+      rec.mo = mo; this._lat = rec; return 'started';
+    },
+    readLatency() {
+      const rec = this._lat; if (!rec) return null; rec.mo.disconnect(); this._lat = null;
+      return { firstFeedbackMs: rec.first ? Math.round(rec.first - rec.t0) : null, contentSettleMs: Math.round(rec.last - rec.t0), mutations: rec.mutations, sawSkeleton: rec.sawSkeleton, sawSpinner: rec.sawSpinner, sawProgress: rec.sawProgress };
+    },
+    startFps() {
+      const rec = { t0: performance.now(), frames: 0, lastFrame: performance.now(), maxGap: 0, longTasks: 0, longTaskMs: 0 };
+      const loop = () => { const now = performance.now(); const gap = now - rec.lastFrame; if (gap > rec.maxGap) rec.maxGap = gap; rec.lastFrame = now; rec.frames++; rec.raf = requestAnimationFrame(loop); };
+      rec.raf = requestAnimationFrame(loop);
+      try { rec.po = new PerformanceObserver((list) => { for (const e of list.getEntries()) { rec.longTasks++; rec.longTaskMs += e.duration; } }); rec.po.observe({ entryTypes: ['longtask'] }); } catch (e) { /* ignore */ }
+      this._fps = rec; return 'started';
+    },
+    readFps() {
+      const rec = this._fps; if (!rec) return null; cancelAnimationFrame(rec.raf); if (rec.po) rec.po.disconnect(); this._fps = null;
+      const elapsed = performance.now() - rec.t0;
+      return { elapsedMs: Math.round(elapsed), frames: rec.frames, fps: Math.round((rec.frames / elapsed) * 1000 * 10) / 10, longTasks: rec.longTasks, longTaskMs: Math.round(rec.longTaskMs), maxFrameGapMs: Math.round(rec.maxGap) };
+    },
+    density() {
+      const sel = 'button,a,[role="button"],[role="tab"],input,select,textarea,[contenteditable="true"]';
+      let vis = 0;
+      for (const e of document.querySelectorAll(sel)) { const r = e.getBoundingClientRect(); if (r.width > 3 && r.height > 3 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth) vis++; }
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let runs = 0, chars = 0, node;
+      while ((node = walker.nextNode())) { const t = node.textContent.trim(); if (t) { runs++; chars += t.length; } }
+      return { visibleClickable: vis, textRuns: runs, textChars: chars, vw: innerWidth, vh: innerHeight };
+    },
+    contrast(sel) {
+      const el = document.querySelector(sel); if (!el) return null;
+      const fg = overWhite(toRGBA(getComputedStyle(el).color));
+      let bgEl = el, bg = [255, 255, 255];
+      while (bgEl) { const c = toRGBA(getComputedStyle(bgEl).backgroundColor); if (c[3] > 0) { bg = overWhite(c); break; } bgEl = bgEl.parentElement; }
+      const L1 = relLum(fg) + 0.05, L2 = relLum(bg) + 0.05; const ratio = L1 > L2 ? L1 / L2 : L2 / L1;
+      return { ratio: Math.round(ratio * 100) / 100, fg, bg };
+    },
+  };
+  return 'installed';
+})()`;
+async function ensureProbe(w) { try { await w.evaluate(PROBE_SRC); } catch { /* ignore */ } }
+
 await win.waitForLoadState("domcontentloaded");
 await win.waitForTimeout(1200);
 fs.writeFileSync(path.join(DIR, "ready"), String(process.pid));
@@ -119,6 +185,20 @@ async function run(cmd) {
     }
     case "move": { await getWin().mouse.move(cmd.x, cmd.y); await getWin().waitForTimeout(cmd.wait ?? 250); return { ok: `move ${cmd.x},${cmd.y}`, shot: await shot("live") }; }
     case "wait": await getWin().waitForTimeout(cmd.ms ?? 500); return { ok: true };
+    // ── E5 探针动作 ──
+    case "probe-latency": {
+      // 测「click→首视觉反馈」与「内容沉降」延迟 + 有无 skeleton/spinner/进度。target 同 click 语法。
+      const w = getWin(); await ensureProbe(w);
+      await w.evaluate("window.__nomiProbe.startLatency()");
+      const r = await click(cmd.target);
+      await w.waitForTimeout(cmd.wait ?? 1800);
+      const m = await w.evaluate("window.__nomiProbe.readLatency()");
+      return { ok: r, latency: m, shot: await shot(cmd.name || "live") };
+    }
+    case "fps-start": { const w = getWin(); await ensureProbe(w); await w.evaluate("window.__nomiProbe.startFps()"); return { ok: "fps measuring…" }; }
+    case "fps-stop": { const m = await getWin().evaluate("window.__nomiProbe.readFps()"); return { fps: m }; }
+    case "density": { const w = getWin(); await ensureProbe(w); return { density: await w.evaluate("window.__nomiProbe.density()") }; }
+    case "contrast": { const w = getWin(); await ensureProbe(w); return { contrast: await w.evaluate(`window.__nomiProbe.contrast(${JSON.stringify(cmd.sel)})`) }; }
     case "quit": return { quit: true };
     default: return { error: "unknown action: " + cmd.action };
   }
