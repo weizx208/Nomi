@@ -9,8 +9,9 @@
 // 找不到（只接了纯生成供应商）→ 只给「去模型设置」。Part A 已保证接 APIMart 即自动有大脑，
 // 故本卡是兜底安全网，常态下因 hasTextModel=true 根本不出现。
 import React from 'react'
-import { IconBulb, IconCheck, IconLoader2, IconSettings } from '@tabler/icons-react'
+import { IconBulb, IconCheck, IconSettings } from '@tabler/icons-react'
 import { cn } from '../../utils/cn'
+import { WorkbenchButton } from '../../design'
 import { NomiIdentityRow } from './AssistantMessageView'
 import {
   listWorkbenchModelCatalogModels,
@@ -90,33 +91,20 @@ export function NoTextModelRecoveryCard({ onResolved }: { onResolved?: () => voi
           </div>
           <div className={cn('flex flex-col gap-2')}>
             {recoverable ? (
-              <button
-                type="button"
+              <WorkbenchButton
+                variant="primary"
+                className="w-full"
+                loading={state === 'enabling'}
                 onClick={() => void enableBrain()}
-                disabled={state === 'enabling'}
-                className={cn(
-                  'inline-flex w-full items-center justify-center gap-1.5 h-8 px-3 rounded-full whitespace-nowrap',
-                  'bg-nomi-ink text-nomi-paper text-body-sm font-medium',
-                  'disabled:opacity-60',
-                )}
               >
-                {state === 'enabling'
-                  ? <IconLoader2 size={15} className={cn('animate-spin')} />
-                  : <IconBulb size={15} />}
+                <IconBulb />
                 启用 {recoverable.labelZh}
-              </button>
+              </WorkbenchButton>
             ) : null}
-            <button
-              type="button"
-              onClick={openSettings}
-              className={cn(
-                'inline-flex w-full items-center justify-center gap-1.5 h-8 px-3 rounded-full whitespace-nowrap',
-                'border border-nomi-line text-nomi-ink-80 text-body-sm',
-              )}
-            >
-              <IconSettings size={15} />
+            <WorkbenchButton variant="default" className="w-full" onClick={openSettings}>
+              <IconSettings />
               去模型设置
-            </button>
+            </WorkbenchButton>
           </div>
         </div>
       )}

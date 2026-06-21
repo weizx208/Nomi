@@ -71,13 +71,9 @@ export default function StoryboardPlanCard(): JSX.Element | null {
           <span className="text-caption text-nomi-ink-60">{shotCount} 个镜头已建成画布节点</span>
           <div className="flex items-center gap-2">
             <WorkbenchButton variant="default" size="sm" onClick={() => setStoryboardEditorOpen(true)}>再次编辑</WorkbenchButton>
-            <button
-              type="button"
-              onClick={() => setWorkspaceMode('generation')}
-              className="ml-auto inline-flex items-center gap-1 h-6 px-2.5 rounded-full border border-nomi-line bg-nomi-paper text-caption text-nomi-ink-60 hover:bg-nomi-ink-05 hover:text-nomi-ink-80"
-            >
+            <WorkbenchButton variant="default" size="sm" className="ml-auto" onClick={() => setWorkspaceMode('generation')}>
               去生成区<IconArrowRight size={13} stroke={1.6} />
-            </button>
+            </WorkbenchButton>
           </div>
         </>
       ) : (

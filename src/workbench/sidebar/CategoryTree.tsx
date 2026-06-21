@@ -348,12 +348,12 @@ export default function CategoryTree({ categories, createCategoryNonce = 0 }: Pr
 
   const renderContextMenu = () => {
     if (!menu) return null
-    const buttonClass = 'w-full px-2.5 py-1 text-left text-caption text-nomi-ink-70 hover:bg-nomi-ink-05'
+    const buttonClass = 'w-full px-2.5 py-1 text-left text-caption text-nomi-ink-80 hover:bg-nomi-ink-05'
     const dangerClass = 'w-full px-2.5 py-1 text-left text-caption text-workbench-danger hover:bg-workbench-danger-soft'
     return (
       <div
         role="menu"
-        className="fixed z-50 min-w-[120px] overflow-hidden rounded-md border border-nomi-line bg-white py-1 shadow-lg"
+        className="fixed z-50 min-w-[120px] overflow-hidden rounded-nomi-sm border border-nomi-line bg-nomi-paper py-1 shadow-workbench-pop"
         style={{ left: menu.x, top: menu.y }}
         onClick={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.preventDefault()}

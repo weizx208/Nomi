@@ -520,7 +520,7 @@ export default function CreationAiPanel({ onCollapse }: { onCollapse?: () => voi
             'flex h-full flex-col items-center justify-center gap-2',
             'max-w-[240px] mx-auto py-6 px-3 text-center',
           )}>
-            <div className={cn('text-nomi-ink font-[Fraunces,Inter,serif] text-title font-medium')}>需要一点灵感？</div>
+            <div className={cn('text-nomi-ink font-nomi-display text-title font-medium')}>需要一点灵感？</div>
             <div className={cn('text-nomi-ink-60 text-body-sm leading-relaxed')}>
               告诉 AI 你想写什么，它会给你一个开头。
             </div>
@@ -621,7 +621,7 @@ export default function CreationAiPanel({ onCollapse }: { onCollapse?: () => voi
             '[grid-area:error] py-2 px-3',
             'border-t border-[color-mix(in_srgb,var(--workbench-danger)_16%,transparent)]',
             'bg-workbench-danger-soft text-workbench-danger',
-            'text-xs leading-[1.45]',
+            'text-caption leading-[1.45]',
           )}
         >
           {error}

@@ -137,7 +137,7 @@ export default function AssistantTimeline(props: AssistantTimelineProps): JSX.El
     return (
       <div className={cn('flex flex-1 flex-col min-h-0 overflow-auto p-4')}>
         <div className={cn('flex flex-1 flex-col items-center justify-center gap-2 max-w-[240px] mx-auto py-6 px-3 text-center')}>
-          <div className={cn('text-nomi-ink font-[Fraunces,Inter,serif] text-title font-medium')}>我帮你搭画布</div>
+          <div className={cn('text-nomi-ink font-nomi-display text-title font-medium')}>我帮你搭画布</div>
           <div className={cn('text-nomi-ink-60 text-body-sm leading-relaxed')}>
             铺镜头、改提示词、连节点都交给我；出图按节点上的「生成」键。
           </div>

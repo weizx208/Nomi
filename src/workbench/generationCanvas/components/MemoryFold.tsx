@@ -59,7 +59,7 @@ export function MemoryFold({ refreshKey }: { refreshKey: number }): JSX.Element 
         aria-expanded={open}
         aria-label='项目记忆'
       >
-        <IconBrain size={13} stroke={1.7} />
+        <IconBrain size={13} stroke={1.8} />
         AI 记得 {facts.length} 条
         <IconChevronDown size={11} className={cn('ml-0.5 transition-transform', open && 'rotate-180')} />
       </button>
@@ -104,7 +104,7 @@ export function MemoryFold({ refreshKey }: { refreshKey: number }): JSX.Element 
                 aria-label={fact.pinned ? '取消置顶' : '置顶(优先注入)'}
                 onClick={async () => setFacts(await updateProjectMemoryFact(fact.id, { pinned: !fact.pinned }))}
               >
-                {fact.pinned ? <IconPinFilled size={12} /> : <IconPin size={12} stroke={1.7} />}
+                {fact.pinned ? <IconPinFilled size={12} /> : <IconPin size={12} stroke={1.8} />}
               </button>
               <button
                 type='button'
@@ -115,7 +115,7 @@ export function MemoryFold({ refreshKey }: { refreshKey: number }): JSX.Element 
                 aria-label='删除这条记忆'
                 onClick={async () => setFacts(await removeProjectMemoryFact(fact.id))}
               >
-                <IconX size={12} stroke={1.7} />
+                <IconX size={12} stroke={1.8} />
               </button>
             </li>
           ))}

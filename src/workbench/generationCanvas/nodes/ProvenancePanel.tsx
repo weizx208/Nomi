@@ -117,7 +117,7 @@ export default function ProvenancePanel({ node, open, onClose, onRegenerate }: P
               onClick={() => onRegenerate(provenance)}
               className={cn(
                 'px-3 py-1.5 rounded-nomi-sm text-caption',
-                'bg-nomi-accent text-white hover:opacity-90',
+                'bg-nomi-accent text-nomi-paper hover:opacity-90',
                 'transition-opacity duration-150',
               )}
             >
