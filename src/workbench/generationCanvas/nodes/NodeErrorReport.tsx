@@ -54,7 +54,7 @@ export function NodeErrorReport({ message, onRetry }: { message: string; onRetry
       // （用户真机反馈）。放行 → 节点可拖可选、参数框正常弹；复制错误详情走卡里的「复制详情」按钮（不靠划选）。
     >
       <div className="flex items-start gap-2">
-        <IconAlertTriangle size={16} stroke={1.7} className="mt-[1px] shrink-0 text-workbench-danger" />
+        <IconAlertTriangle size={16} stroke={1.6} className="mt-[1px] shrink-0 text-workbench-danger" />
         <span className="select-text cursor-text text-body font-bold leading-snug text-nomi-ink">{report.reason}</span>
       </div>
       {report.hint ? <p className="mt-2 select-text cursor-text text-caption leading-relaxed text-nomi-ink-60">{report.hint}</p> : null}

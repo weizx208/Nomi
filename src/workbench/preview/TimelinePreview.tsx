@@ -386,7 +386,7 @@ export default function TimelinePreview({ activeClips, aspectRatio, fps, playhea
             )}>
               <span className={cn(
                 'workbench-preview-player__placeholder-title',
-                'font-[var(--nomi-font-display)] text-lg tracking-tight text-[var(--workbench-muted)]',
+                'font-nomi-display text-lg tracking-tight text-[var(--workbench-muted)]',
               )}>画面预览</span>
               <span className={cn(
                 'workbench-preview-player__placeholder-sub',
@@ -554,7 +554,7 @@ export default function TimelinePreview({ activeClips, aspectRatio, fps, playhea
             'disabled:hover:bg-[var(--nomi-ink)] disabled:hover:text-[var(--nomi-paper)]',
           )}
           label={playing ? '暂停' : '播放'}
-          icon={playing ? <IconPlayerPause size={16} stroke={2} /> : <IconPlayerPlay size={16} stroke={2} />}
+          icon={playing ? <IconPlayerPause size={16} stroke={1.6} /> : <IconPlayerPlay size={16} stroke={1.6} />}
           onClick={togglePlayback}
           disabled={isEmpty}
           title={isEmpty ? '时间轴为空' : undefined}
@@ -664,7 +664,7 @@ export default function TimelinePreview({ activeClips, aspectRatio, fps, playhea
               <div
                 className={cn(
                   'workbench-preview-player__export-progress-bar',
-                  'h-1 bg-[var(--mantine-color-blue-5,#339af0)] rounded-sm transition-[width] duration-200 ease-in-out min-w-1',
+                  'h-1 bg-nomi-accent rounded-sm transition-[width] duration-200 ease-in-out min-w-1',
                 )}
                 style={{ width: `${Math.round(exportRatio * 100)}%` }}
               />

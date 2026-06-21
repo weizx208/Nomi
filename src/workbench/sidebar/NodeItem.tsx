@@ -42,7 +42,7 @@ export default function NodeItem({ node, active = false, depth = 0, onSelect, on
       data-node-id={node.id}
       data-active={active ? 'true' : 'false'}
       className={cn(
-        'w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+        'w-full flex items-center gap-2 rounded-nomi-sm px-2 py-1.5 text-left transition-colors',
         'text-micro leading-tight border border-transparent',
         active
           ? 'bg-nomi-accent/10 text-nomi-accent border-nomi-accent/20'

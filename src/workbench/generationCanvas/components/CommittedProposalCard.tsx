@@ -56,7 +56,7 @@ export default function CommittedProposalCard({ record, onUndone, flat = false }
           )}
           onClick={() => setStepsOpen((open) => !open)}
         >
-          {stepsOpen ? <IconChevronDown size={12} stroke={2} /> : <IconChevronRight size={12} stroke={2} />}
+          {stepsOpen ? <IconChevronDown size={12} stroke={1.8} /> : <IconChevronRight size={12} stroke={1.8} />}
           查看步骤
         </button>
         <WorkbenchButton

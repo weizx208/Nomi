@@ -144,7 +144,7 @@ export default function CanvasEdgeLayer({
                       onSetActiveEdge(null)
                     }}
                   >
-                    <IconScissors size={16} stroke={2.2} aria-hidden="true" />
+                    <IconScissors size={16} stroke={1.6} aria-hidden="true" />
                   </button>
                 </div>
               </foreignObject>

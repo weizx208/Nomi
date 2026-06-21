@@ -12,19 +12,6 @@ type AboutNomiPopoverProps = {
 const PANEL_WIDTH = 360
 const VIEWPORT_MARGIN = 12
 
-const PRIMARY_BTN = cn(
-  'inline-flex items-center justify-center h-8 px-3.5 rounded-[var(--nomi-radius-sm)]',
-  'border border-transparent bg-[var(--nomi-ink)] text-[var(--nomi-paper)] font-inherit text-body-sm',
-  'transition-[background] duration-[var(--nomi-transition-fast)] hover:bg-[var(--nomi-ink-80)]',
-  'disabled:opacity-50 disabled:cursor-default',
-)
-const GHOST_BTN = cn(
-  'inline-flex items-center justify-center h-8 px-3 rounded-[var(--nomi-radius-sm)]',
-  'border border-[var(--nomi-line)] bg-transparent text-[var(--nomi-ink-80)] font-inherit text-body-sm',
-  'transition-[background,color] duration-[var(--nomi-transition-fast)] hover:bg-[var(--nomi-ink-05)] hover:text-[var(--nomi-ink)]',
-  'disabled:opacity-50 disabled:cursor-default',
-)
-
 function platformLabel(info: { platform: string; arch: string } | null): string {
   if (!info) return ''
   const os = info.platform === 'win32' ? 'Windows' : info.platform === 'darwin' ? 'macOS' : info.platform
@@ -131,8 +118,8 @@ function UpdateBody({ updater }: { updater: ReturnType<typeof useUpdater> }): JS
             发现新版 <b className="font-medium">{updater.latestVersion}</b>
           </span>
           <div className="flex items-center gap-2 shrink-0">
-            <button type="button" className={GHOST_BTN} onClick={updater.reset}>稍后</button>
-            <button type="button" className={PRIMARY_BTN} onClick={updater.download}>下载更新</button>
+            <WorkbenchButton variant="default" onClick={updater.reset}>稍后</WorkbenchButton>
+            <WorkbenchButton variant="primary" onClick={updater.download}>下载更新</WorkbenchButton>
           </div>
         </div>
         {updater.notes ? (
@@ -167,8 +154,8 @@ function UpdateBody({ updater }: { updater: ReturnType<typeof useUpdater> }): JS
           下载完成
         </span>
         <div className="flex items-center gap-2 shrink-0">
-          <button type="button" className={GHOST_BTN} onClick={updater.reset}>稍后</button>
-          <button type="button" className={PRIMARY_BTN} onClick={updater.install}>重启并安装</button>
+          <WorkbenchButton variant="default" onClick={updater.reset}>稍后</WorkbenchButton>
+          <WorkbenchButton variant="primary" onClick={updater.install}>重启并安装</WorkbenchButton>
         </div>
       </div>
     )
@@ -182,7 +169,7 @@ function UpdateBody({ updater }: { updater: ReturnType<typeof useUpdater> }): JS
           <span className="min-w-0 break-words">{updater.errorMessage || '更新出错'}</span>
         </div>
         <div className="mt-2.5 flex justify-end">
-          <button type="button" className={GHOST_BTN} onClick={updater.check}>重试</button>
+          <WorkbenchButton variant="default" onClick={updater.check}>重试</WorkbenchButton>
         </div>
       </div>
     )
@@ -192,7 +179,7 @@ function UpdateBody({ updater }: { updater: ReturnType<typeof useUpdater> }): JS
   return (
     <div className="flex items-center justify-between gap-3 min-h-8">
       <span className="text-body-sm text-[var(--nomi-ink-60)]">检查是否有新版本可用</span>
-      <button type="button" className={PRIMARY_BTN} onClick={updater.check}>检查更新</button>
+      <WorkbenchButton variant="primary" onClick={updater.check}>检查更新</WorkbenchButton>
     </div>
   )
 }

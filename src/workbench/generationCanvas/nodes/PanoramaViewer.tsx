@@ -401,7 +401,7 @@ export default function PanoramaViewer({ imageUrl, width, height, onEnterFullscr
             }}
             className={cn(
               'pointer-events-auto inline-flex items-center gap-1.5 rounded-full',
-              'px-3 py-1.5 text-micro font-medium text-white',
+              'px-3 py-1.5 text-micro font-medium text-nomi-paper',
               'bg-[rgba(15,18,22,0.64)] backdrop-blur-[6px]',
               'opacity-0 transition-opacity duration-150 group-hover:opacity-100',
               'hover:bg-[rgba(15,18,22,0.8)] focus-visible:opacity-100',
@@ -427,7 +427,7 @@ export default function PanoramaViewer({ imageUrl, width, height, onEnterFullscr
           <section
             className={cn(
               'relative w-[min(96vw,calc((100vh-64px)*16/9))] aspect-video',
-              'max-h-[calc(100vh-64px)] overflow-hidden rounded-lg',
+              'max-h-[calc(100vh-64px)] overflow-hidden rounded-nomi-lg',
               'bg-black shadow-[0_24px_72px_rgba(15,18,22,0.42)]',
             )}
             data-panorama-dialog-panel

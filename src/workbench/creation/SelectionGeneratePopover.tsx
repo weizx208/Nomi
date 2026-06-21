@@ -143,7 +143,7 @@ export default function SelectionGeneratePopover({ editor, selectedText, onCreat
         'workbench-selection-popover',
         'absolute z-20 inline-flex items-center',
         'w-[210px] h-[40px] gap-[5px] p-1 pr-[5px]',
-        'border border-workbench-border rounded-lg',
+        'border border-workbench-border rounded-nomi-lg',
         'bg-workbench-overlay shadow-workbench-pop',
         'backdrop-blur-[18px] backdrop-saturate-[1.06]',
         'origin-[50%_100%]',

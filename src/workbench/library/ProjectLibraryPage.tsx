@@ -1,5 +1,5 @@
 import React from 'react'
-import { IconFolderOpen, IconFolderShare, IconMovie, IconPlugConnected, IconPlus, IconSparkles, IconTrash } from '@tabler/icons-react'
+import { IconFolderOpen, IconFolderShare, IconMovie, IconPlugConnected, IconPlus, IconSearch, IconSparkles, IconTrash } from '@tabler/icons-react'
 import { cn } from '../../utils/cn'
 import { ActionCard, NomiLogoMark, NomiWordmark } from '../../design'
 import { NomiImage } from '../../design/media'
@@ -40,7 +40,7 @@ const ThumbnailMosaic = React.memo(function ThumbnailMosaic({ urls }: { urls: st
     // 未生成的项目无封面 → 只放中性占位图标；名称由卡片下方统一显示，缩略图里不再重复（去重）。
     return (
       <div className="absolute inset-0 grid place-items-center bg-nomi-ink-05">
-        <IconMovie size={26} stroke={1.2} className="text-nomi-ink-30" aria-hidden />
+        <IconMovie size={26} stroke={1.5} className="text-nomi-ink-30" aria-hidden />
       </div>
     )
   }
@@ -197,9 +197,7 @@ export default function ProjectLibraryPage({ onOpenProject, onDeleteProject, onN
                 'focus-within:border-[color-mix(in_oklch,var(--nomi-accent)_50%,transparent)]',
                 'focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--nomi-accent)_10%,transparent)]',
               )}>
-                <svg className="shrink-0 text-[var(--nomi-ink-30)]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>
-                </svg>
+                <IconSearch size={14} stroke={1.6} className="shrink-0 text-[var(--nomi-ink-30)]" aria-hidden />
                 <input
                   className="flex-1 border-none bg-transparent font-inherit text-body-sm text-nomi-ink outline-none placeholder:text-[var(--nomi-ink-30)] [&::-webkit-search-cancel-button]:hidden"
                   type="search"

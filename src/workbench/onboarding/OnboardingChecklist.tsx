@@ -252,7 +252,7 @@ export function OnboardingChecklist(): JSX.Element | null {
                             : 'border-2 border-nomi-ink-20',
                       )}
                     >
-                      {done ? <IconCheck size={12} stroke={3} aria-hidden="true" /> : null}
+                      {done ? <IconCheck size={12} stroke={1.8} aria-hidden="true" /> : null}
                     </span>
                     <span className="min-w-0">
                       <span
@@ -279,7 +279,7 @@ export function OnboardingChecklist(): JSX.Element | null {
                       )}
                     >
                       带我去
-                      <IconArrowRight size={13} stroke={2} aria-hidden="true" />
+                      <IconArrowRight size={13} stroke={1.6} aria-hidden="true" />
                     </button>
                   ) : null}
                 </li>

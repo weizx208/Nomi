@@ -54,13 +54,13 @@ export default function GroupItem({ group, nodes, selectedNodeIds, editing = fal
 
   return (
     <div
-      className={cn('rounded-md border border-nomi-line/70 bg-white/35', dragOver && 'ring-2 ring-nomi-accent/60')}
+      className={cn('rounded-nomi-sm border border-nomi-line/70 bg-white/35', dragOver && 'ring-2 ring-nomi-accent/60')}
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
       {editing ? (
-        <div className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-micro text-nomi-ink-60">
+        <div className="w-full flex items-center gap-2 px-2 py-1.5 rounded-nomi-sm text-micro text-nomi-ink-60">
           <span className="w-3 text-micro text-nomi-ink-40" aria-hidden>{expanded ? '▾' : '▸'}</span>
           <span
             className="h-2.5 w-2.5 rounded-full border border-nomi-line shrink-0"
@@ -90,7 +90,7 @@ export default function GroupItem({ group, nodes, selectedNodeIds, editing = fal
           onContextMenu={(event) => onContextMenu?.(event, group.id)}
           aria-expanded={expanded}
           className={cn(
-            'w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-md',
+            'w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-nomi-sm',
             'text-micro text-nomi-ink-60 hover:text-nomi-ink hover:bg-nomi-ink-05',
           )}
           title={group.name}
