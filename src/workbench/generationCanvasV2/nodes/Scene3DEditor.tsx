@@ -2,13 +2,15 @@ import React from 'react'
 import { IconCube, IconMaximize } from '@tabler/icons-react'
 import { cn } from '../../../utils/cn'
 import { toast } from '../../../ui/toast'
+import { persistActiveWorkbenchProjectNow } from '../../project/workbenchProjectSession'
 import type { GenerationCanvasNode } from '../model/generationCanvasTypes'
 import { useGenerationCanvasStore } from '../store/generationCanvasStore'
-import { normalizeScene3DState } from './scene3d/scene3dSerializer'
+import { cloneScene3DState, normalizeScene3DState } from './scene3d/scene3dSerializer'
 import { persistScene3DScreenshot } from './scene3d/scene3dScreenshot'
 import type { Scene3DCaptureResult, Scene3DState } from './scene3d/scene3dTypes'
 
-const Scene3DFullscreen = React.lazy(() => import('./scene3d/Scene3DFullscreen'))
+const loadScene3DFullscreen = () => import('./scene3d/Scene3DFullscreen')
+const Scene3DFullscreen = React.lazy(loadScene3DFullscreen)
 
 type Scene3DEditorProps = {
   node: GenerationCanvasNode
@@ -36,25 +38,51 @@ function scene3DStateKey(state: Scene3DState): string {
   return JSON.stringify(state)
 }
 
-export default function Scene3DEditor({ node, width, height, readOnly = false }: Scene3DEditorProps): JSX.Element {
+function persistableScene3DState(state: Scene3DState): Scene3DState {
+  return cloneScene3DState(normalizeScene3DState(state))
+}
+
+function Scene3DEditor({ node, width, height, readOnly = false }: Scene3DEditorProps): JSX.Element {
   const [fullscreen, setFullscreen] = React.useState(false)
   const updateNode = useGenerationCanvasStore((state) => state.updateNode)
   const addNode = useGenerationCanvasStore((state) => state.addNode)
   const connectNodes = useGenerationCanvasStore((state) => state.connectNodes)
-  const sceneState = readScene3DState(node)
+  const sceneState = React.useMemo(() => readScene3DState(node), [node.id, node.meta?.scene3dState])
+  const sceneStateKey = React.useMemo(() => scene3DStateKey(sceneState), [sceneState])
+  const persistedSceneStateKeyRef = React.useRef(sceneStateKey)
+  const lastThumbnailRef = React.useRef(sceneState.lastThumbnail)
   const thumbnailUrl = sceneState.lastThumbnail
 
+  React.useEffect(() => {
+    persistedSceneStateKeyRef.current = sceneStateKey
+    lastThumbnailRef.current = sceneState.lastThumbnail
+  }, [sceneState.lastThumbnail, sceneStateKey])
+
+  const preloadFullscreenEditor = React.useCallback(() => {
+    void loadScene3DFullscreen()
+  }, [])
+
   const handleStateChange = React.useCallback((nextState: Scene3DState) => {
+    const nextSceneState = persistableScene3DState({
+      ...nextState,
+      lastThumbnail: nextState.lastThumbnail ?? lastThumbnailRef.current,
+    })
+    const nextSceneStateKey = scene3DStateKey(nextSceneState)
+    if (persistedSceneStateKeyRef.current === nextSceneStateKey) return
+    persistedSceneStateKeyRef.current = nextSceneStateKey
     const current = useGenerationCanvasStore.getState().nodes.find((candidate) => candidate.id === node.id)
-    const currentSceneState = normalizeScene3DState(current?.meta?.scene3dState)
-    if (scene3DStateKey(currentSceneState) === scene3DStateKey(nextState)) return
     updateNode(node.id, {
       meta: {
         ...(current?.meta || {}),
-        scene3dState: nextState,
+        scene3dState: nextSceneState,
       },
     })
   }, [node.id, updateNode])
+
+  const handleCloseFullscreen = React.useCallback(() => {
+    setFullscreen(false)
+    void persistActiveWorkbenchProjectNow().catch(() => {})
+  }, [])
 
   const handleScreenshot = React.useCallback(async (capture: Scene3DCaptureResult) => {
     try {
@@ -97,10 +125,12 @@ export default function Scene3DEditor({ node, width, height, readOnly = false }:
       connectNodes(node.id, screenshotNode.id, 'reference')
 
       const current = useGenerationCanvasStore.getState().nodes.find((candidate) => candidate.id === node.id)
-      const nextSceneState = {
+      const nextSceneState = persistableScene3DState({
         ...normalizeScene3DState(current?.meta?.scene3dState),
         lastThumbnail: persisted.url,
-      }
+      })
+      lastThumbnailRef.current = persisted.url
+      persistedSceneStateKeyRef.current = scene3DStateKey(nextSceneState)
       updateNode(node.id, {
         meta: {
           ...(current?.meta || node.meta || {}),
@@ -149,7 +179,9 @@ export default function Scene3DEditor({ node, width, height, readOnly = false }:
           type="button"
           aria-label="打开 3D 编辑器"
           title="打开 3D 编辑器"
+          onFocus={preloadFullscreenEditor}
           onPointerDown={(event) => event.stopPropagation()}
+          onPointerEnter={preloadFullscreenEditor}
           onClick={(event) => {
             event.stopPropagation()
             setFullscreen(true)
@@ -165,7 +197,7 @@ export default function Scene3DEditor({ node, width, height, readOnly = false }:
             initialState={sceneState}
             nodeTitle={node.title || '3D场景'}
             readOnly={readOnly}
-            onClose={() => setFullscreen(false)}
+            onClose={handleCloseFullscreen}
             onScreenshot={(capture) => { void handleScreenshot(capture) }}
             onStateChange={handleStateChange}
           />
@@ -174,3 +206,14 @@ export default function Scene3DEditor({ node, width, height, readOnly = false }:
     </>
   )
 }
+
+export default React.memo(Scene3DEditor, (previous, next) => (
+  previous.node.id === next.node.id &&
+  previous.node.title === next.node.title &&
+  previous.node.meta?.scene3dState === next.node.meta?.scene3dState &&
+  previous.node.position.x === next.node.position.x &&
+  previous.node.position.y === next.node.position.y &&
+  previous.width === next.width &&
+  previous.height === next.height &&
+  previous.readOnly === next.readOnly
+))

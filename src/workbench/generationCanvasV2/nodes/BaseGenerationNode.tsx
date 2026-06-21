@@ -9,13 +9,7 @@ import {
 } from "@tabler/icons-react";
 import ProvenancePanel from "./ProvenancePanel";
 import { getBuiltinCategoryById } from "../../project/projectCategories";
-import CharacterCardNode from "./render/CharacterCardNode";
-import TextDocumentNode from "./render/TextDocumentNode";
-import SceneCardNode from "./render/SceneCardNode";
-import PropCardNode from "./render/PropCardNode";
-import AudioStripNode from "./render/AudioStripNode";
-import ImageCropOverlay from "./render/ImageCropOverlay";
-import NodeImageEditToolbar from "./NodeImageEditToolbar";
+import type { CropRect } from "./render/ImageCropOverlay";
 import { useNodeImageEditing } from "./useNodeImageEditing";
 import { cn } from "../../../utils/cn";
 import type { GenerationCanvasNode } from "../model/generationCanvasTypes";
@@ -30,14 +24,14 @@ import { getTrackTypeForClipType } from "../../timeline/timelineTypes";
 import { buildClipFromGenerationNode } from "../model/buildClipFromGenerationNode";
 import { canRunGenerationNode, runGenerationNode } from "../runner/generationRunController";
 import { NodeErrorReport } from "./NodeErrorReport";
-import { WorkbenchButton } from "../../../design";
+import { WorkbenchButton } from "../../../design/workbenchActions";
 import NodeGenerationComposer from "./NodeGenerationComposer";
 import { buildVideoPlaybackUrl } from "../../../media/videoPlaybackUrl";
 import {
     diagnoseVideoPlaybackFailure,
     logVideoPlaybackFailure,
 } from "../../../media/videoPlaybackDiagnostics";
-import PanoramaViewer, { type PanoramaScreenshot } from "./PanoramaViewer";
+import type { PanoramaScreenshot } from "./PanoramaViewer";
 import { getGenerationNodeExecutionKind } from "../model/generationNodeKinds";
 import {
     canDragGenerationNodeToTimeline,
@@ -104,6 +98,14 @@ function getNodeSizeBounds(kind: GenerationCanvasNode["kind"]): NodeSizeBounds {
 }
 const TIMELINE_TRACK_CLIPS_SELECTOR = ".workbench-timeline-track__clips";
 const Scene3DEditor = React.lazy(() => import("./Scene3DEditor"));
+const CharacterCardNode = React.lazy(() => import("./render/CharacterCardNode"));
+const SceneCardNode = React.lazy(() => import("./render/SceneCardNode"));
+const PropCardNode = React.lazy(() => import("./render/PropCardNode"));
+const AudioStripNode = React.lazy(() => import("./render/AudioStripNode"));
+const TextDocumentNode = React.lazy(() => import("./render/TextDocumentNode"));
+const ImageCropOverlay = React.lazy(() => import("./render/ImageCropOverlay"));
+const NodeImageEditToolbar = React.lazy(() => import("./NodeImageEditToolbar"));
+const PanoramaViewer = React.lazy(() => import("./PanoramaViewer"));
 
 function Scene3DEditorLoading(): JSX.Element {
     return (
@@ -112,6 +114,26 @@ function Scene3DEditorLoading(): JSX.Element {
                 "flex w-full h-full items-center justify-center bg-nomi-ink-05 text-[12px] text-nomi-ink-45",
             )}>
             3D 编辑器加载中
+        </div>
+    );
+}
+
+function NodeBodyLoading(): JSX.Element {
+    return <div className='w-full h-full bg-nomi-ink-05' />;
+}
+
+function PanoramaViewerLoading({
+    width,
+    height,
+}: {
+    width: number;
+    height: number;
+}): JSX.Element {
+    return (
+        <div
+            className='flex items-center justify-center rounded bg-nomi-ink-05 text-[11px] text-nomi-ink-40'
+            style={{ width, height }}>
+            全景预览加载中
         </div>
     );
 }
@@ -894,9 +916,9 @@ function BaseGenerationNodeImpl({
             className={cn(
                 "generation-canvas-v2-node",
                 "absolute p-0 border-0 rounded-none bg-transparent shadow-none",
-                "cursor-grab select-none touch-none overflow-visible",
+                "pointer-events-auto z-[2] cursor-grab select-none touch-none overflow-visible",
                 "data-[selected=true]:z-[5]",
-                "block",
+                "block group",
             )}
             data-kind={node.kind}
             data-expanded={selected ? "true" : "false"}
@@ -922,6 +944,10 @@ function BaseGenerationNodeImpl({
                             "border-0 rounded-full bg-transparent -translate-y-1/2 cursor-crosshair",
                             "opacity-80 transition-opacity duration-150 hover:opacity-100",
                             "data-[active=true]:opacity-100",
+                            "[&:hover_.generation-canvas-v2-node__handle-dot]:scale-[1.08]",
+                            "[&:hover_.generation-canvas-v2-node__handle-dot]:bg-workbench-accent",
+                            "data-[active=true]:[&_.generation-canvas-v2-node__handle-dot]:scale-[1.08]",
+                            "data-[active=true]:[&_.generation-canvas-v2-node__handle-dot]:bg-workbench-accent",
                         )}
                         aria-label='连接到此节点'
                         data-active={
@@ -935,7 +961,11 @@ function BaseGenerationNodeImpl({
                             connectToNode(node.id);
                         }}>
                         <span
-                            className='generation-canvas-v2-node__handle-dot'
+                            className={cn(
+                                "generation-canvas-v2-node__handle-dot",
+                                "h-3.5 w-3.5 rounded-full border-2 border-workbench-surface-solid bg-workbench-muted-soft",
+                                "shadow-[0_4px_12px_rgba(18,24,38,0.14)] transition-[transform,background,opacity] duration-150",
+                            )}
                             aria-hidden='true'
                         />
                     </WorkbenchButton>
@@ -946,6 +976,10 @@ function BaseGenerationNodeImpl({
                             "border-0 rounded-full bg-transparent -translate-y-1/2 cursor-crosshair",
                             "opacity-80 transition-opacity duration-150 hover:opacity-100",
                             "data-[active=true]:opacity-100",
+                            "[&:hover_.generation-canvas-v2-node__handle-dot]:scale-[1.08]",
+                            "[&:hover_.generation-canvas-v2-node__handle-dot]:bg-workbench-accent",
+                            "data-[active=true]:[&_.generation-canvas-v2-node__handle-dot]:scale-[1.08]",
+                            "data-[active=true]:[&_.generation-canvas-v2-node__handle-dot]:bg-workbench-accent",
                         )}
                         aria-label='从此节点开始连线'
                         data-active={
@@ -965,7 +999,11 @@ function BaseGenerationNodeImpl({
                             startConnection(node.id);
                         }}>
                         <span
-                            className='generation-canvas-v2-node__handle-dot'
+                            className={cn(
+                                "generation-canvas-v2-node__handle-dot",
+                                "h-3.5 w-3.5 rounded-full border-2 border-workbench-surface-solid bg-workbench-muted-soft",
+                                "shadow-[0_4px_12px_rgba(18,24,38,0.14)] transition-[transform,background,opacity] duration-150",
+                            )}
                             aria-hidden='true'
                         />
                     </WorkbenchButton>
@@ -1041,18 +1079,20 @@ function BaseGenerationNodeImpl({
             !readOnly &&
             node.result?.type === "image" &&
             node.result.url ? (
-                <NodeImageEditToolbar
-                    splittingGridSize={imageEditing.splittingGridSize}
-                    cropMode={imageEditing.cropMode}
-                    imageOpBusy={imageEditing.imageOpBusy}
-                    onGridSplit={(gridSize) => {
-                        void imageEditing.handleImageGridSplit(gridSize);
-                    }}
-                    onCrop={() => imageEditing.setCropMode(true)}
-                    onTransform={(op) => {
-                        void imageEditing.handleImageTransform(op);
-                    }}
-                />
+                <React.Suspense fallback={null}>
+                    <NodeImageEditToolbar
+                        splittingGridSize={imageEditing.splittingGridSize}
+                        cropMode={imageEditing.cropMode}
+                        imageOpBusy={imageEditing.imageOpBusy}
+                        onGridSplit={(gridSize) => {
+                            void imageEditing.handleImageGridSplit(gridSize);
+                        }}
+                        onCrop={() => imageEditing.setCropMode(true)}
+                        onTransform={(op) => {
+                            void imageEditing.handleImageTransform(op);
+                        }}
+                    />
+                </React.Suspense>
             ) : null}
 
             <header
@@ -1081,7 +1121,14 @@ function BaseGenerationNodeImpl({
                 {node.derivedFrom ? (
                     <button
                         type='button'
-                        className='generation-canvas-v2-node__derived-badge'
+                        className={cn(
+                            "generation-canvas-v2-node__derived-badge",
+                            "inline-flex min-h-6 items-center gap-1 rounded-full border-0 px-[7px] py-[3px]",
+                            "bg-white/[0.86] text-nomi-accent shadow-[0_8px_18px_rgba(18,24,38,0.1)] backdrop-blur-[8px]",
+                            "font-[inherit] text-[10.5px] font-[650] leading-none cursor-pointer",
+                            "hover:enabled:bg-white hover:enabled:text-nomi-ink",
+                            "disabled:cursor-not-allowed disabled:text-nomi-ink-40 disabled:opacity-[0.72]",
+                        )}
                         aria-label={
                             sourceNodeExists
                                 ? `定位源节点：${sourceNodeLabel}`
@@ -1135,16 +1182,20 @@ function BaseGenerationNodeImpl({
           preview div + composer 在卡片模式下隐藏 */}
             {isCardKind ? (
                 <div className='w-full h-full rounded-nomi shadow-nomi-md overflow-hidden'>
-                    {renderKind === "character-card" && (
-                        <CharacterCardNode node={node} />
-                    )}
-                    {renderKind === "scene-card" && (
-                        <SceneCardNode node={node} />
-                    )}
-                    {renderKind === "prop-card" && <PropCardNode node={node} />}
-                    {renderKind === "audio-strip" && (
-                        <AudioStripNode node={node} />
-                    )}
+                    <React.Suspense fallback={<NodeBodyLoading />}>
+                        {renderKind === "character-card" && (
+                            <CharacterCardNode node={node} />
+                        )}
+                        {renderKind === "scene-card" && (
+                            <SceneCardNode node={node} />
+                        )}
+                        {renderKind === "prop-card" && (
+                            <PropCardNode node={node} />
+                        )}
+                        {renderKind === "audio-strip" && (
+                            <AudioStripNode node={node} />
+                        )}
+                    </React.Suspense>
                 </div>
             ) : null}
 
@@ -1152,7 +1203,9 @@ function BaseGenerationNodeImpl({
                 （圆角/阴影/裁剪在 TextDocumentNode 内层 body）。 */}
             {isTextKind ? (
                 <div className='w-full h-full'>
-                    <TextDocumentNode node={node} />
+                    <React.Suspense fallback={<NodeBodyLoading />}>
+                        <TextDocumentNode node={node} />
+                    </React.Suspense>
                 </div>
             ) : null}
 
@@ -1161,6 +1214,10 @@ function BaseGenerationNodeImpl({
                     "generation-canvas-v2-node__preview",
                     "relative w-full h-full min-h-0 overflow-hidden",
                     "rounded-nomi shadow-nomi-md cursor-grab touch-none",
+                    "group-data-[focus-flash=true]:animate-generation-focus-pulse",
+                    "group-data-[focus-flash=true]:outline group-data-[focus-flash=true]:outline-[3px]",
+                    "group-data-[focus-flash=true]:outline-offset-[5px]",
+                    "group-data-[focus-flash=true]:[outline-color:color-mix(in_srgb,var(--nomi-accent)_72%,white)]",
                     // 棋盘格占位底纹只在「未生成」态出现；有结果后节点尺寸已贴合图片比例，
                     // 不再露出底纹，避免图片外面套一层框。
                     !hasResult &&
@@ -1181,21 +1238,29 @@ function BaseGenerationNodeImpl({
                     </React.Suspense>
                 ) : node.kind === "panorama" ? (
                     node.result?.url || node.meta?.imageUrl ? (
-                        <PanoramaViewer
-                            imageUrl={
-                                (node.result?.url ||
-                                    node.meta?.imageUrl) as string
-                            }
-                            width={visualSize.width}
-                            height={previewHeight}
-                            onEnterFullscreen={(trigger) => {
-                                panoramaFullscreenRef.current = trigger;
-                            }}
-                            onCaptureFourView={(trigger) => {
-                                panoramaFourViewRef.current = trigger;
-                            }}
-                            onScreenshot={handlePanoramaScreenshot}
-                        />
+                        <React.Suspense
+                            fallback={
+                                <PanoramaViewerLoading
+                                    width={visualSize.width}
+                                    height={previewHeight}
+                                />
+                            }>
+                            <PanoramaViewer
+                                imageUrl={
+                                    (node.result?.url ||
+                                        node.meta?.imageUrl) as string
+                                }
+                                width={visualSize.width}
+                                height={previewHeight}
+                                onEnterFullscreen={(trigger) => {
+                                    panoramaFullscreenRef.current = trigger;
+                                }}
+                                onCaptureFourView={(trigger) => {
+                                    panoramaFourViewRef.current = trigger;
+                                }}
+                                onScreenshot={handlePanoramaScreenshot}
+                            />
+                        </React.Suspense>
                     ) : (
                         <div
                             className={cn(
@@ -1290,13 +1355,15 @@ function BaseGenerationNodeImpl({
                 (node.kind === "image" || isAssetKind) &&
                 node.result?.type === "image" &&
                 node.result.url ? (
-                    <ImageCropOverlay
-                        imageUrl={node.result.url}
-                        onConfirm={(rect) => {
-                            void imageEditing.handleCropConfirm(rect);
-                        }}
-                        onCancel={() => imageEditing.setCropMode(false)}
-                    />
+                    <React.Suspense fallback={null}>
+                        <ImageCropOverlay
+                            imageUrl={node.result.url}
+                            onConfirm={(rect: CropRect) => {
+                                void imageEditing.handleCropConfirm(rect);
+                            }}
+                            onCancel={() => imageEditing.setCropMode(false)}
+                        />
+                    </React.Suspense>
                 ) : null}
             </div>
 

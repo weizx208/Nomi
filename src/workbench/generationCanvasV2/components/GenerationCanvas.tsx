@@ -1,7 +1,7 @@
 import React from 'react'
 import { IconCopy, IconCut, IconFolderPlus, IconX } from '@tabler/icons-react'
 import { IconScissors } from '@tabler/icons-react'
-import { WorkbenchButton, WorkbenchIconButton } from '../../../design'
+import { WorkbenchButton, WorkbenchIconButton } from '../../../design/workbenchActions'
 import { toast } from '../../../ui/toast'
 import { cn } from '../../../utils/cn'
 import CanvasToolbar, { NodeAddMenu } from './CanvasToolbar'
@@ -15,7 +15,7 @@ import { useGenerationCanvasStore } from '../store/generationCanvasStore'
 import { notifyModelOptionsRefresh, useModelOptionsState } from '../../../config/useModelOptions'
 import { useWorkbenchStore } from '../../workbenchStore'
 import { GroupFrameList, type CanvasGroupBox } from './GroupFrame'
-import '../styles/generationCanvas.css'
+import { markStartup, markStartupProbe } from '../../../utils/startupDiagnostics'
 
 const GENERATION_PROVIDER = 'chatfire'
 const GENERATION_DEFAULT_BASE_URL = 'https://api.chatfire.site'
@@ -28,6 +28,10 @@ const WHEEL_PAGE_HEIGHT = 800
 const GROUP_BOX_PADDING = 24
 const GROUP_BOX_LABEL_HEIGHT = 28
 const DEFAULT_NODE_SIZE = { width: 320, height: 360 }
+const CANVAS_READY_FALLBACK_MS = 160
+const NODE_RENDER_AFTER_READY_DELAY_MS = 140
+
+markStartupProbe('generation-canvas-module-loaded')
 
 type GenerationCanvasProps = {
   readOnly?: boolean
@@ -73,6 +77,118 @@ function writeProviderSettings(apiKey: string, baseUrl: string) {
   window.localStorage.setItem('base-urls-by-provider', JSON.stringify(baseUrls))
 }
 
+type ProviderSettingsPopoverProps = {
+  onClose: () => void
+}
+
+function ProviderSettingsPopover({ onClose }: ProviderSettingsPopoverProps): JSX.Element {
+  const [apiKey, setApiKey] = React.useState('')
+  const [baseUrl, setBaseUrl] = React.useState(GENERATION_DEFAULT_BASE_URL)
+  const [settingsSaved, setSettingsSaved] = React.useState(false)
+  const imageModelOptionsState = useModelOptionsState('image')
+  const videoModelOptionsState = useModelOptionsState('video')
+  const imageModelOptions = imageModelOptionsState.options
+  const videoModelOptions = videoModelOptionsState.options
+  const modelOptionsStatusMessage = imageModelOptionsState.statusMessage || videoModelOptionsState.statusMessage
+  const hasApiKey = apiKey.trim().length > 0
+
+  React.useEffect(() => {
+    setApiKey(readProviderSetting('apiKey'))
+    setBaseUrl(readProviderSetting('baseUrl'))
+  }, [])
+
+  const handleSaveSettings = React.useCallback(() => {
+    writeProviderSettings(apiKey, baseUrl)
+    const desktop = getDesktopBridge()
+    if (desktop) {
+      desktop.modelCatalog.upsertVendor({
+        key: GENERATION_PROVIDER,
+        name: 'ChatFire OpenAI Compatible',
+        enabled: true,
+        baseUrlHint: baseUrl.trim() || GENERATION_DEFAULT_BASE_URL,
+        authType: 'bearer',
+      })
+      if (apiKey.trim()) {
+        desktop.modelCatalog.upsertVendorApiKey(GENERATION_PROVIDER, { apiKey: apiKey.trim(), enabled: true })
+      }
+      notifyModelOptionsRefresh('all')
+    }
+    setApiKey(readProviderSetting('apiKey'))
+    setBaseUrl(readProviderSetting('baseUrl'))
+    setSettingsSaved(true)
+  }, [apiKey, baseUrl])
+
+  return (
+    <div
+      className={cn(
+        'generation-canvas-v2__provider-popover',
+        'absolute top-4 right-4 z-[12] grid gap-[10px]',
+        'w-[min(360px,calc(100vw-40px))] p-3',
+        'border border-workbench-border rounded-[12px]',
+        'bg-white/[0.98] shadow-workbench-pop pointer-events-auto',
+      )}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div
+        className={cn(
+          'flex items-center justify-between gap-2 pb-2',
+          'border-b border-workbench-border/[0.58] text-workbench-muted text-xs',
+        )}
+        aria-label="模型目录状态"
+      >
+        <span>系统模型目录</span>
+        <strong className="text-workbench-ink text-xs font-[650]">{imageModelOptions.length} 图 / {videoModelOptions.length} 视频</strong>
+        <WorkbenchButton onClick={() => { window.dispatchEvent(new CustomEvent(OPEN_MODEL_CATALOG_EVENT)) }}>接入模型</WorkbenchButton>
+      </div>
+      <p className={cn('m-0 text-workbench-muted text-xs leading-[1.45]')}>
+        {modelOptionsStatusMessage
+          ? modelOptionsStatusMessage
+          : '可选模型来自模型目录；没有模型时请打开"模型接入"，让 Agent 根据官方文档生成草案并确认写入。'}
+      </p>
+      <label className="grid gap-[5px] text-workbench-muted text-xs">
+        <span>API Key</span>
+        <input
+          className={cn(
+            'h-[34px] min-w-0 px-[10px]',
+            'border border-workbench-border rounded-workbench-control',
+            'bg-workbench-surface-solid text-workbench-ink font-[inherit] text-[13px]',
+          )}
+          type="password"
+          value={apiKey}
+          placeholder="粘贴生成渠道 API Key"
+          onChange={(event) => {
+            setApiKey(event.target.value)
+            setSettingsSaved(false)
+          }}
+        />
+      </label>
+      <label className="grid gap-[5px] text-workbench-muted text-xs">
+        <span>Base URL</span>
+        <input
+          className={cn(
+            'h-[34px] min-w-0 px-[10px]',
+            'border border-workbench-border rounded-workbench-control',
+            'bg-workbench-surface-solid text-workbench-ink font-[inherit] text-[13px]',
+          )}
+          value={baseUrl}
+          placeholder={GENERATION_DEFAULT_BASE_URL}
+          onChange={(event) => {
+            setBaseUrl(event.target.value)
+            setSettingsSaved(false)
+          }}
+        />
+      </label>
+      <div className={cn('flex justify-end gap-2')}>
+        <WorkbenchButton onClick={handleSaveSettings}>保存</WorkbenchButton>
+        <WorkbenchButton onClick={onClose}>关闭</WorkbenchButton>
+      </div>
+      <p className="m-0 text-xs" data-tone={hasApiKey ? 'success' : 'error'}>
+        {settingsSaved ? '已保存生成渠道配置。' : hasApiKey ? '当前已配置生成渠道 Key。' : '旧渠道 Key 未配置；新模型优先通过"模型接入"写入模型目录。'}
+      </p>
+    </div>
+  )
+}
+
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -97,6 +213,14 @@ function createInitialViewport(): { zoom: number; offset: { x: number; y: number
   return {
     zoom: 1,
     offset: { x: 0, y: 0 },
+  }
+}
+
+function estimateInitialStageSize(): { width: number; height: number } {
+  if (typeof window === 'undefined') return { width: 1280, height: 720 }
+  return {
+    width: Math.max(320, window.innerWidth - 360),
+    height: Math.max(320, window.innerHeight - 220),
   }
 }
 
@@ -209,15 +333,6 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   }, [groups, selectedNodeIds])
   const draggingGroupRef = React.useRef<{ groupId: string; clientX: number; clientY: number; moved: boolean } | null>(null)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
-  const [apiKey, setApiKey] = React.useState(() => readProviderSetting('apiKey'))
-  const [baseUrl, setBaseUrl] = React.useState(() => readProviderSetting('baseUrl'))
-  const [settingsSaved, setSettingsSaved] = React.useState(false)
-  const hasApiKey = apiKey.trim().length > 0
-  const imageModelOptionsState = useModelOptionsState('image')
-  const videoModelOptionsState = useModelOptionsState('video')
-  const imageModelOptions = imageModelOptionsState.options
-  const videoModelOptions = videoModelOptionsState.options
-  const modelOptionsStatusMessage = imageModelOptionsState.statusMessage || videoModelOptionsState.statusMessage
 
   // Pan/zoom state
   const initialViewport = React.useMemo(() => createInitialViewport(), [])
@@ -259,11 +374,20 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   // overhead.
   const VIRTUALIZATION_THRESHOLD = 50
   const VIRTUALIZATION_BUFFER_PX = 400
-  const [stageSize, setStageSize] = React.useState<{ width: number; height: number }>({ width: 0, height: 0 })
+  const [stageSize, setStageSize] = React.useState<{ width: number; height: number }>(() => estimateInitialStageSize())
   React.useEffect(() => {
     const el = stageRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
-    const update = () => setStageSize({ width: el.clientWidth, height: el.clientHeight })
+    const update = () => {
+      const width = el.clientWidth
+      const height = el.clientHeight
+      if (width <= 0 || height <= 0) return
+      setStageSize((current) => (
+        current.width === width && current.height === height
+          ? current
+          : { width, height }
+      ))
+    }
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
@@ -287,7 +411,16 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
       // AABB intersection test
       return nx + nw >= viewLeft && nx <= viewRight && ny + nh >= viewTop && ny <= viewBottom
     })
-  }, [nodes, zoom, offset, stageSize])
+  }, [nodes, offset.x, offset.y, stageSize.height, stageSize.width, zoom])
+  const renderedNodeIds = React.useMemo(
+    () => new Set(visibleNodesForRender.map((node) => node.id)),
+    [visibleNodesForRender],
+  )
+  const visibleEdgesForRender = React.useMemo(() => {
+    if (visibleNodesForRender.length === nodes.length) return edges
+    return edges.filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target))
+  }, [edges, nodes.length, renderedNodeIds, visibleNodesForRender.length])
+  const [nodeRenderingEnabled, setNodeRenderingEnabled] = React.useState(() => nodes.length <= 8)
   const [contextNodeMenu, setContextNodeMenu] = React.useState<{
     stageX: number
     stageY: number
@@ -301,10 +434,60 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   const [focusFlashNodeId, setFocusFlashNodeId] = React.useState<string | null>(null)
   const [pendingFocusNodeId, setPendingFocusNodeId] = React.useState<string | null>(null)
   const focusFlashTimerRef = React.useRef<number | null>(null)
+  const firstPaintMarkedRef = React.useRef(false)
+  const canvasReadyMarkedRef = React.useRef(false)
+  const [canvasShellReady, setCanvasShellReady] = React.useState(false)
 
   React.useEffect(() => {
     markReady()
   }, [markReady])
+
+  React.useEffect(() => {
+    if (nodeRenderingEnabled || !canvasShellReady) return undefined
+    const timer = window.setTimeout(() => setNodeRenderingEnabled(true), NODE_RENDER_AFTER_READY_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [canvasShellReady, nodeRenderingEnabled])
+
+  React.useEffect(() => {
+    if (firstPaintMarkedRef.current) return
+    firstPaintMarkedRef.current = true
+    markStartup('GenerationCanvas mounted')
+    markStartupProbe('generation-canvas-mounted', {
+      nodes: nodes.length,
+      renderedNodes: nodeRenderingEnabled ? visibleNodesForRender.length : 0,
+      edges: edges.length,
+      renderedEdges: visibleEdgesForRender.length,
+    })
+    let firstFrame = 0
+    let secondFrame = 0
+    const markCanvasReady = (source: 'raf' | 'timeout') => {
+      if (canvasReadyMarkedRef.current) return
+      canvasReadyMarkedRef.current = true
+      setCanvasShellReady(true)
+      window.clearTimeout(fallbackTimer)
+      if (firstFrame) window.cancelAnimationFrame(firstFrame)
+      if (secondFrame) window.cancelAnimationFrame(secondFrame)
+      markStartupProbe('generation-canvas-ready', {
+        nodes: nodes.length,
+        renderedNodes: nodeRenderingEnabled ? visibleNodesForRender.length : 0,
+        edges: edges.length,
+        renderedEdges: visibleEdgesForRender.length,
+        source,
+      })
+    }
+    const fallbackTimer = window.setTimeout(() => markCanvasReady('timeout'), CANVAS_READY_FALLBACK_MS)
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => markCanvasReady('raf'))
+    })
+    return () => {
+      window.clearTimeout(fallbackTimer)
+      if (firstFrame) window.cancelAnimationFrame(firstFrame)
+      if (secondFrame) window.cancelAnimationFrame(secondFrame)
+    }
+    // This is a startup marker, not reactive UI state. Keep it one-shot so
+    // ResizeObserver or store updates cannot cancel the queued ready signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   React.useEffect(() => {
     if (!activeEdgeId || edges.some((edge) => edge.id === activeEdgeId)) return
@@ -617,32 +800,10 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   React.useEffect(() => {
     const handleOpenSettings = () => {
       setSettingsOpen(true)
-      setSettingsSaved(false)
     }
     window.addEventListener('nomi-open-generation-settings', handleOpenSettings)
     return () => window.removeEventListener('nomi-open-generation-settings', handleOpenSettings)
   }, [])
-
-  const handleSaveSettings = () => {
-    writeProviderSettings(apiKey, baseUrl)
-    const desktop = getDesktopBridge()
-    if (desktop) {
-      desktop.modelCatalog.upsertVendor({
-        key: GENERATION_PROVIDER,
-        name: 'ChatFire OpenAI Compatible',
-        enabled: true,
-        baseUrlHint: baseUrl.trim() || GENERATION_DEFAULT_BASE_URL,
-        authType: 'bearer',
-      })
-      if (apiKey.trim()) {
-        desktop.modelCatalog.upsertVendorApiKey(GENERATION_PROVIDER, { apiKey: apiKey.trim(), enabled: true })
-      }
-      notifyModelOptionsRefresh('all')
-    }
-    setApiKey(readProviderSetting('apiKey'))
-    setBaseUrl(readProviderSetting('baseUrl'))
-    setSettingsSaved(true)
-  }
 
   const handleStageDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     if (readOnly) return
@@ -870,78 +1031,15 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
       data-ready={isReady ? 'true' : undefined}
     >
       <div className={cn('generation-canvas-v2__main', 'relative w-full h-full min-w-0 min-h-0')}>
-        {settingsOpen ? (
-          <div
-            className={cn(
-              'generation-canvas-v2__provider-popover',
-              'absolute top-4 right-4 z-[12] grid gap-[10px]',
-              'w-[min(360px,calc(100vw-40px))] p-3',
-              'border border-workbench-border rounded-[12px]',
-              'bg-white/[0.98] shadow-workbench-pop pointer-events-auto',
-            )}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <div
-              className={cn(
-                'flex items-center justify-between gap-2 pb-2',
-                'border-b border-workbench-border/[0.58] text-workbench-muted text-xs',
-              )}
-              aria-label="模型目录状态"
-            >
-              <span>系统模型目录</span>
-              <strong className="text-workbench-ink text-xs font-[650]">{imageModelOptions.length} 图 / {videoModelOptions.length} 视频</strong>
-              <WorkbenchButton onClick={() => { window.dispatchEvent(new CustomEvent(OPEN_MODEL_CATALOG_EVENT)) }}>接入模型</WorkbenchButton>
-            </div>
-            <p className={cn('m-0 text-workbench-muted text-xs leading-[1.45]')}>
-              {modelOptionsStatusMessage
-                ? modelOptionsStatusMessage
-                : '可选模型来自模型目录；没有模型时请打开"模型接入"，让 Agent 根据官方文档生成草案并确认写入。'}
-            </p>
-            <label className="grid gap-[5px] text-workbench-muted text-xs">
-              <span>API Key</span>
-              <input
-                className={cn(
-                  'h-[34px] min-w-0 px-[10px]',
-                  'border border-workbench-border rounded-workbench-control',
-                  'bg-workbench-surface-solid text-workbench-ink font-[inherit] text-[13px]',
-                )}
-                type="password"
-                value={apiKey}
-                placeholder="粘贴生成渠道 API Key"
-                onChange={(event) => {
-                  setApiKey(event.target.value)
-                  setSettingsSaved(false)
-                }}
-              />
-            </label>
-            <label className="grid gap-[5px] text-workbench-muted text-xs">
-              <span>Base URL</span>
-              <input
-                className={cn(
-                  'h-[34px] min-w-0 px-[10px]',
-                  'border border-workbench-border rounded-workbench-control',
-                  'bg-workbench-surface-solid text-workbench-ink font-[inherit] text-[13px]',
-                )}
-                value={baseUrl}
-                placeholder={GENERATION_DEFAULT_BASE_URL}
-                onChange={(event) => {
-                  setBaseUrl(event.target.value)
-                  setSettingsSaved(false)
-                }}
-              />
-            </label>
-            <div className={cn('flex justify-end gap-2')}>
-              <WorkbenchButton onClick={handleSaveSettings}>保存</WorkbenchButton>
-              <WorkbenchButton onClick={() => setSettingsOpen(false)}>关闭</WorkbenchButton>
-            </div>
-            <p className="m-0 text-xs" data-tone={hasApiKey ? 'success' : 'error'}>
-              {settingsSaved ? '已保存生成渠道配置。' : hasApiKey ? '当前已配置生成渠道 Key。' : '旧渠道 Key 未配置；新模型优先通过"模型接入"写入模型目录。'}
-            </p>
-          </div>
-        ) : null}
+        {settingsOpen ? <ProviderSettingsPopover onClose={() => setSettingsOpen(false)} /> : null}
         {!readOnly ? <CanvasToolbar getInsertionPosition={getToolbarInsertionPosition} categoryId={activeCategoryId} /> : null}
         <div
-          className="generation-canvas-v2__stage"
+          className={cn(
+            'generation-canvas-v2__stage',
+            'absolute inset-0 overflow-hidden select-none cursor-grab',
+            'bg-[radial-gradient(circle,var(--nomi-ink-20)_1px,transparent_1.2px),var(--nomi-bg)] bg-[length:24px_24px]',
+            'data-[panning=true]:cursor-grabbing',
+          )}
           ref={stageRef}
           data-panning={isPanning ? 'true' : undefined}
           onPointerDownCapture={handleStagePointerDownCapture}
@@ -963,8 +1061,14 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
             className={cn('generation-canvas-v2__canvas', 'absolute inset-0 origin-top-left')}
             style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})` }}
           >
-            <svg className="generation-canvas-v2__edges" aria-label="节点连接线">
-              {edges.map((edge) => {
+            <svg
+              className={cn(
+                'generation-canvas-v2__edges',
+                'pointer-events-none absolute left-0 top-0 h-[3000px] w-[4000px] overflow-visible',
+              )}
+              aria-label="节点连接线"
+            >
+              {visibleEdgesForRender.map((edge) => {
                 const source = nodeById.get(edge.source)
                 const target = nodeById.get(edge.target)
                 if (!source || !target) return null
@@ -983,10 +1087,25 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
                 const cutPosition = isActiveEdge && activeEdge?.position ? activeEdge.position : { x: midX, y: midY }
                 return (
                   <g key={edge.id} className="generation-canvas-v2__edge" data-mode={mode} data-active={isActiveEdge ? 'true' : undefined}>
-                    <path className="generation-canvas-v2__edge-path" d={path} />
+                    <path
+                      className={cn(
+                        'generation-canvas-v2__edge-path',
+                        'fill-none stroke-nomi-ink-30 stroke-[1.2px] [stroke-dasharray:3_3] pointer-events-none',
+                        isActiveEdge && 'stroke-2 drop-shadow-[0_0_4px_rgba(18,24,38,0.14)]',
+                        (mode === 'first_frame' || mode === 'last_frame') && 'stroke-nomi-accent [stroke-dasharray:none]',
+                        mode === 'style_ref' && 'stroke-[oklch(0.58_0.12_155)]',
+                        mode === 'character_ref' && 'stroke-[oklch(0.56_0.12_35)]',
+                        mode === 'composition_ref' && 'stroke-[oklch(0.54_0.09_290)]',
+                      )}
+                      d={path}
+                    />
                     {!readOnly ? (
                       <path
-                        className="generation-canvas-v2__edge-hit"
+                        className={cn(
+                          'generation-canvas-v2__edge-hit',
+                          'fill-none stroke-[rgba(18,24,38,0.001)] stroke-[30px] [pointer-events:stroke] cursor-pointer',
+                          'focus:outline-none focus-visible:outline-none',
+                        )}
                         d={path}
                         role="button"
                         tabIndex={0}
@@ -1006,7 +1125,7 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
                       />
                     ) : null}
                     {isActiveEdge && !readOnly ? (
-                      <foreignObject className="generation-canvas-v2__edge-cut-object" x={cutPosition.x - 18} y={cutPosition.y - 18} width="36" height="36">
+                      <foreignObject className="generation-canvas-v2__edge-cut-object overflow-visible pointer-events-auto" x={cutPosition.x - 18} y={cutPosition.y - 18} width="36" height="36">
                         <div className={cn('generation-canvas-v2__edge-cut-wrap', 'grid w-9 h-9 place-items-center pointer-events-auto')}>
                           <button
                             type="button"
@@ -1046,29 +1165,34 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
                 const ctrl = Math.max(40, Math.abs(endX - startX) * 0.45)
                 return (
                   <path
-                    className="generation-canvas-v2__edge-preview"
+                    className={cn(
+                      'generation-canvas-v2__edge-preview',
+                      'fill-none stroke-[oklch(0.6_0.14_250)] stroke-2 [stroke-dasharray:6_4] pointer-events-none',
+                    )}
                     d={`M ${startX} ${startY} C ${startX + ctrl} ${startY}, ${endX - ctrl} ${endY}, ${endX} ${endY}`}
                   />
                 )
               })()}
             </svg>
-            <div className={cn('generation-canvas-v2__nodes', 'absolute top-0 left-0 w-[4000px] h-[3000px]')}>
+            <div className={cn('generation-canvas-v2__nodes', 'pointer-events-none absolute left-0 top-0 h-[3000px] w-[4000px]')}>
               {/* E.2C-30: GroupFrame 抽离为独立组件 */}
               <GroupFrameList boxes={groupBoxes} onPointerDown={handleGroupFramePointerDown} />
-              <React.Suspense fallback={null}>
-                {visibleNodesForRender.map((node) => {
-                  const NodeComponent = getGenerationNodeComponent(node.kind)
-                  return (
-                    <NodeComponent
-                      key={node.id}
-                      node={node}
-                      selected={selectedSet.has(node.id)}
-                      readOnly={readOnly}
-                      focusFlash={focusFlashNodeId === node.id}
-                    />
-                  )
-                })}
-              </React.Suspense>
+              {nodeRenderingEnabled ? (
+                <React.Suspense fallback={null}>
+                  {visibleNodesForRender.map((node) => {
+                    const NodeComponent = getGenerationNodeComponent(node.kind)
+                    return (
+                      <NodeComponent
+                        key={node.id}
+                        node={node}
+                        selected={selectedSet.has(node.id)}
+                        readOnly={readOnly}
+                        focusFlash={focusFlashNodeId === node.id}
+                      />
+                    )
+                  })}
+                </React.Suspense>
+              ) : null}
             </div>
             {selectedBounds && selectedCount > 1 && !readOnly ? (
               <div
