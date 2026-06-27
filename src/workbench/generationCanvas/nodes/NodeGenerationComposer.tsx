@@ -6,7 +6,7 @@ import PromptEditor from '../../assets/PromptEditor'
 import { resolveReferenceSlots } from '../runner/referenceSlots'
 import type { GenerationCanvasNode } from '../model/generationCanvasTypes'
 import { useGenerationCanvasStore } from '../store/generationCanvasStore'
-import { canRunGenerationNode, confirmAndRunNode } from '../runner/generationRunController'
+import { canRunGenerationNode, confirmAndRunNode, regenerateNodeInPlace } from '../runner/generationRunController'
 import { collectUngeneratedReferenceAncestors } from '../runner/referenceAncestors'
 import { buildDependencyWaves } from '../runner/dependencyWaves'
 import { useBatchPlanPreviewStore } from '../components/batchPlanPreview'
@@ -132,8 +132,9 @@ export default function NodeGenerationComposer({ node, visualSize }: Props): JSX
       return
     }
     if (!canRunGenerationNode(node, { nodes: state.nodes, edges: state.edges })) return
-    // 付费守卫：单节点生成/重新生成 → 轻确认 + 铸令牌 + 跑（confirmAndRunNode 内部收口）。
-    await confirmAndRunNode(node.id, hasResult ? { rerun: true } : {})
+    // 已有结果的「重新生成」原地回填：新图进当前节点堆叠并设为主图，不再复制新节点。
+    if (hasResult) await regenerateNodeInPlace(node.id)
+    else await confirmAndRunNode(node.id)
   }
 
   // 遮挡防线（audit 2026-06-12 bug C）：composer 默认朝下展开时，靠近画布底部的节点

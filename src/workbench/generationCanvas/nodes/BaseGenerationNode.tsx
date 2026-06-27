@@ -1,5 +1,6 @@
 import React from "react";
 import {
+    IconCheck,
     IconCopy,
     IconGripVertical,
     IconInfoCircle,
@@ -16,6 +17,7 @@ import TextDocumentNode from "./render/TextDocumentNode";
 import ImageCropGridOverlay from "./render/ImageCropGridOverlay";
 import NodeImageEditToolbar from "./NodeImageEditToolbar";
 import NodeResultDownloadButton from "./NodeResultDownloadButton";
+import { ImageResultStackControls } from "./ImageResultStack";
 import { FloatingToolbarShell, TOOLBAR_ICON as TBI, ToolbarButton, ToolbarDivider } from "./NodeFloatingToolbar";
 import { useNodeImageEditing } from "./useNodeImageEditing";
 import { useNodeDragResize } from "./useNodeDragResize";
@@ -137,6 +139,10 @@ function BaseGenerationNodeImpl({
     const panoramaUploadInputRef = React.useRef<HTMLInputElement | null>(null);
     // E11: provenance viewer open state (mounted into node header for AI-generated assets)
     const [provenanceOpen, setProvenanceOpen] = React.useState(false);
+    const [imageStackOpen, setImageStackOpen] = React.useState(false);
+    const handleImageStackOpenChange = React.useCallback((nextOpen: boolean) => {
+        setImageStackOpen(nextOpen);
+    }, []);
 
     // C5: 自由缩放边界按 kind 取（text 比媒体节点更大）。在拖拽/缩放闭包之前算好，
     // 让 handlePointerMove 与渲染期的尺寸计算用同一份 bounds。
@@ -150,6 +156,18 @@ function BaseGenerationNodeImpl({
             encodeTimelineGenerationNodeDragPayload(node),
         );
     };
+
+    const handleConnectionDragStart = React.useCallback(
+        (event: React.PointerEvent<HTMLElement>) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof event.currentTarget.releasePointerCapture === "function") {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            startConnection(node.id);
+        },
+        [node.id, startConnection],
+    );
 
     const handleAddToTimelineAtPlayhead = (
         event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
@@ -272,6 +290,15 @@ function BaseGenerationNodeImpl({
     const canSendToTimeline = canDragGenerationNodeToTimeline(node, {
         readOnly,
     });
+    const showTimelineNotch =
+        canSendToTimeline &&
+        node.kind !== "scene3d" &&
+        node.result?.type === "image" &&
+        !imageStackOpen;
+    const showSideTimelineDrag =
+        canSendToTimeline &&
+        node.kind !== "scene3d" &&
+        !showTimelineNotch;
     // 失败态不再显示文字徽标——错误信息已铺满节点正文（NodeErrorReport），
     // 顶部再写一遍「生成失败」是重复噪音（2026-06-03 6 角色评审）。
     const showStatusBadge =
@@ -359,8 +386,14 @@ function BaseGenerationNodeImpl({
     );
 
     // 图片本地编辑（切图 / 裁剪 / 旋转翻转）—— A1.5 抽进 useNodeImageEditing。
-    // 图片类与素材类共用；衍生物都「跳出新节点」，原图零改动。
+    // 图片类与素材类共用；编辑产物进入当前节点历史堆叠，并切换为主图。
     const imageEditing = useNodeImageEditing(node, visualSize);
+    const showImageResultStack =
+        !isCardKind &&
+        !isTextKind &&
+        node.result?.type === "image" &&
+        Boolean(node.result.url) &&
+        (node.kind === "image" || isAssetKind || isImageLikeGenerationNodeKind(node.kind));
 
     return (
         <article
@@ -397,15 +430,20 @@ function BaseGenerationNodeImpl({
                             "opacity-80 transition-opacity duration-150 hover:opacity-100",
                             "data-[active=true]:opacity-100",
                         )}
-                        aria-label='连接到此节点'
+                        aria-label={isPendingConnectionTarget ? "连接到此节点" : "从此节点开始连线"}
                         data-active={
                             isPendingConnectionTarget ? "true" : "false"
                         }
                         onPointerDown={(event) => {
-                            event.stopPropagation();
+                            if (isPendingConnectionTarget) {
+                                event.stopPropagation();
+                                return;
+                            }
+                            handleConnectionDragStart(event);
                         }}
                         onClick={(event) => {
                             event.stopPropagation();
+                            if (!isPendingConnectionTarget) return;
                             completeNodeConnection(node.id);
                         }}>
                         <span
@@ -425,19 +463,7 @@ function BaseGenerationNodeImpl({
                         data-active={
                             isPendingConnectionSource ? "true" : "false"
                         }
-                        onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            if (
-                                typeof event.currentTarget
-                                    .releasePointerCapture === "function"
-                            ) {
-                                event.currentTarget.releasePointerCapture(
-                                    event.pointerId,
-                                );
-                            }
-                            startConnection(node.id);
-                        }}>
+                        onPointerDown={handleConnectionDragStart}>
                         <span
                             className='generation-canvas-v2-node__handle-dot'
                             aria-hidden='true'
@@ -485,6 +511,7 @@ function BaseGenerationNodeImpl({
             selected &&
             !isMultiSelectActive &&
             !readOnly &&
+            !imageStackOpen &&
             node.result?.type === "image" &&
             node.result.url ? (
                 <NodeImageEditToolbar
@@ -501,7 +528,7 @@ function BaseGenerationNodeImpl({
             ) : null}
 
             {/* 视频等无编辑工具条的结果：单独一条「下载」浮条；多选时藏（只留居中批量条，不糊一片）。 */}
-            <NodeResultDownloadButton node={node} selected={selected && !isMultiSelectActive} />
+            <NodeResultDownloadButton node={node} selected={selected && !isMultiSelectActive && !imageStackOpen} />
 
             <header
                 className={cn(
@@ -543,7 +570,7 @@ function BaseGenerationNodeImpl({
                         <span>独立副本</span>
                     </button>
                 ) : null}
-                {hasResult ? (
+                {hasResult && !imageStackOpen ? (
                     <button
                         type='button'
                         className={cn(
@@ -733,9 +760,58 @@ function BaseGenerationNodeImpl({
                 ) : null}
                 {isRemoveBackgroundPending && hasResult ? <RemoveBackgroundPendingOverlay message={node.progress?.message} progress={node.progress?.percent} /> : null}
             </div>
+            {showImageResultStack ? (
+                <ImageResultStackControls
+                    node={node}
+                    readOnly={readOnly}
+                    selected={selected && !isMultiSelectActive}
+                    visualWidth={visualSize.width}
+                    visualHeight={visualSize.height}
+                    onOpenChange={handleImageStackOpenChange}
+                />
+            ) : null}
+
+            {imageStackOpen && showImageResultStack ? (
+                <span
+                    className={cn(
+                        "pointer-events-none absolute right-2 top-2 z-[9] inline-flex h-7 items-center gap-1 rounded-full px-2",
+                        "border-0 bg-nomi-ink text-micro font-medium text-nomi-paper shadow-nomi-sm",
+                    )}>
+                    <IconCheck size={13} stroke={2.2} />
+                    主图
+                </span>
+            ) : null}
+
+            {showTimelineNotch ? (
+                <div
+                    role='button'
+                    tabIndex={0}
+                    className={cn(
+                        "generation-canvas-v2-node__timeline-notch",
+                        "absolute left-1/2 top-0 z-[9]",
+                        "inline-flex items-center justify-center px-2",
+                        "border border-t-0 shadow-nomi-sm",
+                        "font-[inherit] text-micro font-medium cursor-grab active:cursor-grabbing",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--workbench-accent)] focus-visible:ring-offset-2",
+                    )}
+                    aria-label={TIMELINE_DRAG_HANDLE_LABEL}
+                    title={`${TIMELINE_DRAG_HANDLE_LABEL}（长按拖拽）`}
+                    draggable
+                    onClick={(event) => event.stopPropagation()}
+                    onDragStart={handleTimelineDragStart}
+                    onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        handleAddToTimelineAtPlayhead(event);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}>
+                    <IconGripVertical size={13} stroke={1.8} aria-hidden='true' />
+                    <span className='sr-only'>{TIMELINE_DRAG_HANDLE_LABEL}</span>
+                </div>
+            ) : null}
 
             {isGenerating && !isRemoveBackgroundPending ? <GeneratingOverlay /> : null}
-            {canSendToTimeline && node.kind !== "scene3d" ? (
+            {showSideTimelineDrag ? (
                 <div
                     role='button'
                     tabIndex={0}
@@ -785,6 +861,7 @@ function BaseGenerationNodeImpl({
             {selected &&
             !isMultiSelectActive &&
             !readOnly &&
+            !imageStackOpen &&
             node.kind !== "panorama" &&
             node.kind !== "scene3d" &&
             node.kind !== "whiteboard" &&

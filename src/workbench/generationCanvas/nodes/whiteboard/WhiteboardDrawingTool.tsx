@@ -71,6 +71,8 @@ type WhiteboardDrawingToolProps = {
   canvasImageItems?: WhiteboardResultLibraryItem[]
   resultItems?: WhiteboardResultLibraryItem[]
   screenshotBusy?: boolean
+  screenshotLabel?: string
+  focusResultsOnScreenshot?: boolean
   onScreenshot?: () => void
 }
 
@@ -118,6 +120,8 @@ const WhiteboardDrawingTool = React.forwardRef<WhiteboardDrawingToolHandle, Whit
     canvasImageItems = [],
     resultItems = [],
     screenshotBusy = false,
+    screenshotLabel = '截图并创建图片节点',
+    focusResultsOnScreenshot = true,
     onScreenshot,
   }, ref) {
     const [activeTool, setActiveTool] = React.useState<ToolKey>('brush')
@@ -387,9 +391,9 @@ const WhiteboardDrawingTool = React.forwardRef<WhiteboardDrawingToolHandle, Whit
     }, [])
 
     const handleScreenshotClick = React.useCallback(() => {
-      setActiveLibraryTab('results')
+      if (focusResultsOnScreenshot) setActiveLibraryTab('results')
       onScreenshot?.()
-    }, [onScreenshot])
+    }, [focusResultsOnScreenshot, onScreenshot])
 
     const handleRemoveBackground = React.useCallback((target: CanvasObjectTarget) => {
       if (removeBgBusy || target.kind !== 'asset') return
@@ -465,8 +469,8 @@ const WhiteboardDrawingTool = React.forwardRef<WhiteboardDrawingToolHandle, Whit
 
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 <ToolIconButton
-                  title="截图并创建图片节点"
-                  aria-label="截图并创建图片节点"
+                  title={screenshotLabel}
+                  aria-label={screenshotLabel}
                   disabled={!onScreenshot || screenshotBusy}
                   onClick={handleScreenshotClick}
                 >

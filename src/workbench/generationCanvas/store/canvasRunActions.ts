@@ -1,10 +1,30 @@
 import { rollbackNodeHistory } from '../model/graphOps'
-import type { GenerationNodeRunRecord } from '../model/generationCanvasTypes'
+import type { GenerationNodeResult, GenerationNodeRunRecord } from '../model/generationCanvasTypes'
 import { createRunId } from './canvasIds'
 import { bumpPersistRevision } from './canvasGuards'
 import { createProgress, getResultTaskKind, getRunDurationSeconds, mergeRunRecord } from './runRecordHelpers'
 import { emitCanvasGesture } from '../events/canvasEventEmitter'
 import type { CanvasRunActions, CanvasSliceCreator } from './canvasStoreTypes'
+
+function mergeResultHistory(
+  nextResult: GenerationNodeResult,
+  previousResult: GenerationNodeResult | undefined,
+  previousHistory: GenerationNodeResult[] | undefined,
+): GenerationNodeResult[] {
+  const history: GenerationNodeResult[] = []
+  const seen = new Set<string>()
+  const add = (result: GenerationNodeResult | undefined) => {
+    if (!result) return
+    const key = result.id || result.url || result.thumbnailUrl || result.text || ''
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    history.push(result)
+  }
+  add(nextResult)
+  add(previousResult)
+  ;(previousHistory || []).forEach(add)
+  return history
+}
 
 // S5-a3 run 域记账 = 终态收敛:setNodeProgress(每 1.5s 轮询 tick)不入日志(§4.3 瞬态),
 // 终态 action 发后态整节点(canvas.node.run-updated)——内部时间戳逻辑再复杂,后态都构造性精确;
@@ -107,6 +127,7 @@ export const createCanvasRunActions: CanvasSliceCreator<CanvasRunActions> = (set
     set((state) => {
       const node = state.nodes.find((candidate) => candidate.id === nodeId)
       if (!node) return
+      const previousResult = node.result
       const latestRun = node.runs?.[0]
       const completedAt = result.createdAt || Date.now()
       const runs = latestRun
@@ -128,7 +149,7 @@ export const createCanvasRunActions: CanvasSliceCreator<CanvasRunActions> = (set
           ]
         : node.runs
       node.result = result
-      node.history = [result, ...(node.history || []).filter((entry) => entry.id !== result.id)]
+      node.history = mergeResultHistory(result, previousResult, node.history)
       node.status = 'success'
       node.error = undefined
       node.progress = undefined

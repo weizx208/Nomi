@@ -296,16 +296,15 @@ export async function runGenerationNodesByPlan(
 }
 
 /**
- * 单节点生成/重试/重新生成的轻确认 + 铸令牌 + 跑（付费守卫，务实纵深 A1）。
- * rerun=true 先复制出新节点再绑令牌跑。抽到此处而非内联进 NodeGenerationComposer /
- * BaseGenerationNode（后者 908 行顶格巨壳，不喂；BaseGenerationNode 复用其现有 controller import 行）。
+ * 单节点生成/重试/生成变体的轻确认 + 铸令牌 + 跑（付费守卫，务实纵深 A1）。
+ * rerun=true 是「基于此生成变体」：先复制出新节点再绑令牌跑；普通重新生成走 regenerateNodeInPlace。
  */
 export async function confirmAndRunNode(nodeId: string, opts: { rerun?: boolean } = {}): Promise<void> {
   const node = useGenerationCanvasStore.getState().nodes.find((n) => n.id === nodeId)
   const ok = await useSpendConfirmStore.getState().requestConfirm({
-    title: opts.rerun ? '重新生成' : '开始生成',
+    title: opts.rerun ? '生成变体' : '开始生成',
     message: describeGenerationCost(1, node ? spendCostKind(node.kind) : 'image'),
-    confirmLabel: opts.rerun ? '重新生成' : '生成',
+    confirmLabel: opts.rerun ? '生成变体' : '生成',
     light: true,
   })
   if (!ok) return

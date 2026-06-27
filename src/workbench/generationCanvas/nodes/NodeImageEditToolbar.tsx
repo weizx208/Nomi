@@ -6,7 +6,7 @@ import { useResultDownload } from './useResultDownload'
 import { FloatingToolbarShell, TOOLBAR_ICON as I, ToolbarButton, ToolbarDivider, ToolbarMenu } from './NodeFloatingToolbar'
 import type { GenerationCanvasNode } from '../model/generationCanvasTypes'
 import WhiteboardModal from './whiteboard/WhiteboardModal'
-import { inferWhiteboardAspectRatio } from './whiteboard/whiteboardState'
+import { inferWhiteboardAspectRatio, readWhiteboardState } from './whiteboard/whiteboardState'
 import { NomiLoadingMark } from '../../../design'
 
 // 图片节点编辑浮条（方案 B 分组，用户拍板）：定妆 ｜ 裁剪 · 切图▾ · 变换▾ ｜ 下载。
@@ -50,7 +50,7 @@ export default function NodeImageEditToolbar({ node, editGrid, imageOpBusy, onGr
         <ToolbarButton
           icon={<IconCrop size={I.size} stroke={I.stroke} />}
           label="裁剪"
-          title="裁剪（可拖取景框，裁出一个新节点，原图保留）"
+          title="裁剪（可拖取景框，加入堆叠并设为主图）"
           disabled={busy}
           onClick={onCrop}
         />
@@ -58,7 +58,7 @@ export default function NodeImageEditToolbar({ node, editGrid, imageOpBusy, onGr
           <ToolbarButton
             icon={removeBackgroundBusy ? <NomiLoadingMark size={I.size} /> : <IconScissors size={I.size} stroke={I.stroke} />}
             label={removeBackgroundBusy ? '抠图中' : '抠图'}
-            title="抠图（去除背景，用透明 PNG 替换当前图片）"
+            title="抠图（去除背景，加入堆叠并设为主图）"
             disabled={busy}
             ariaBusy={removeBackgroundBusy}
             onClick={onRemoveBackground}
@@ -106,6 +106,7 @@ export default function NodeImageEditToolbar({ node, editGrid, imageOpBusy, onGr
           nodeId={node.id}
           sourceKind="image"
           nodeTitle={`${node.title || '图片'} · 画板`}
+          initialState={readWhiteboardState(node)}
           initialImage={{
             url: imageUrl,
             aspectRatio: inferWhiteboardAspectRatio(node.meta?.imageWidth, node.meta?.imageHeight),

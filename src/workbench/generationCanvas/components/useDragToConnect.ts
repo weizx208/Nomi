@@ -12,6 +12,12 @@ type UseDragToConnectArgs = {
   offsetRef: React.MutableRefObject<Offset>
   zoomRef: React.MutableRefObject<number>
   cancelConnection: () => void
+  onDropOnEmpty?: (input: {
+    sourceNodeId: string
+    stagePoint: Offset
+    canvasPoint: Offset
+    clientPoint: Offset
+  }) => void
 }
 
 export function useDragToConnect({
@@ -21,6 +27,7 @@ export function useDragToConnect({
   offsetRef,
   zoomRef,
   cancelConnection,
+  onDropOnEmpty,
 }: UseDragToConnectArgs): { pendingCursorPos: Offset | null } {
   const [pendingCursorPos, setPendingCursorPos] = React.useState<Offset | null>(null)
 
@@ -51,10 +58,25 @@ export function useDragToConnect({
       // 用 elementFromPoint 命中即所见即所得；连线预览线 pointer-events:none 不挡。
       const hit = document.elementFromPoint(event.clientX, event.clientY)
       const targetId = (hit?.closest('[data-node-id]') as HTMLElement | null)?.dataset.nodeId
-      if (targetId && targetId !== pendingConnectionSourceId) {
+      if (targetId === pendingConnectionSourceId) {
+        cancelConnection()
+      } else if (targetId) {
         completeNodeConnection(targetId)
       } else {
-        cancelConnection()
+        if (!stageRef.current || !onDropOnEmpty) {
+          cancelConnection()
+        } else {
+          const rect = stageRef.current.getBoundingClientRect()
+          const o = offsetRef.current
+          const z = zoomRef.current
+          const stagePoint = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+          onDropOnEmpty({
+            sourceNodeId: pendingConnectionSourceId,
+            stagePoint,
+            canvasPoint: { x: (stagePoint.x - o.x) / z, y: (stagePoint.y - o.y) / z },
+            clientPoint: { x: event.clientX, y: event.clientY },
+          })
+        }
       }
       setPendingCursorPos(null)
     }
@@ -65,7 +87,7 @@ export function useDragToConnect({
       document.removeEventListener('pointerup', handleUp)
       if (frame !== null) window.cancelAnimationFrame(frame)
     }
-  }, [pendingConnectionSourceId, cancelConnection, readOnly, offsetRef, stageRef, zoomRef])
+  }, [pendingConnectionSourceId, cancelConnection, onDropOnEmpty, readOnly, offsetRef, stageRef, zoomRef])
 
   return { pendingCursorPos }
 }

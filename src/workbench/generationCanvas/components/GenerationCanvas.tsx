@@ -9,6 +9,7 @@ import { ASSET_LIBRARY_DRAG_MIME } from '../../assets/assetLibraryDrag'
 import { handleCanvasStageDrop } from './canvasStageDrop'
 import type { GenerationNodeKind } from '../model/generationCanvasTypes'
 import { getGenerationNodeComponent } from '../nodes/renderRegistry'
+import { completeNodeConnection } from '../nodes/completeNodeConnection'
 import { useGenerationCanvasStore } from '../store/generationCanvasStore'
 import { buildDependencyWaves } from '../runner/dependencyWaves'
 import { confirmAndRunPlan } from './batchPlanPreview'
@@ -67,6 +68,7 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   )
   const selectedNodeIds = useGenerationCanvasStore((state) => state.selectedNodeIds)
   const addNode = useGenerationCanvasStore((state) => state.addNode)
+  const startConnection = useGenerationCanvasStore((state) => state.startConnection)
   const clearSelection = useGenerationCanvasStore((state) => state.clearSelection)
   const selectNodesInRect = useGenerationCanvasStore((state) => state.selectNodesInRect)
   const setCanvasTransform = useGenerationCanvasStore((state) => state.setCanvasTransform)
@@ -116,6 +118,13 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   const appearNodeIds = useNodeAppearTracking(allNodes)
   const { isTidying, tidy } = useTidyCanvas(activeCategoryId)
   const [contextNodeMenu, setContextNodeMenu] = React.useState<{
+    stageX: number
+    stageY: number
+    canvasX: number
+    canvasY: number
+  } | null>(null)
+  const [connectionCreateMenu, setConnectionCreateMenu] = React.useState<{
+    sourceNodeId: string
     stageX: number
     stageY: number
     canvasX: number
@@ -256,6 +265,31 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
     }
   }, [contextNodeMenu])
 
+  React.useEffect(() => {
+    if (!connectionCreateMenu) return undefined
+    const closeMenu = () => {
+      setConnectionCreateMenu(null)
+      cancelConnection()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    window.addEventListener('pointerdown', closeMenu)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', closeMenu)
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', closeMenu)
+    }
+  }, [cancelConnection, connectionCreateMenu])
+
+  React.useEffect(() => {
+    if (!connectionCreateMenu) return
+    if (pendingConnectionSourceId === connectionCreateMenu.sourceNodeId) return
+    setConnectionCreateMenu(null)
+  }, [connectionCreateMenu, pendingConnectionSourceId])
+
   // 拖拽连线跟踪（含 rAF 节流预览线）抽到 useDragToConnect（R9/B3）
   const { pendingCursorPos } = useDragToConnect({
     readOnly,
@@ -264,6 +298,25 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
     offsetRef,
     zoomRef,
     cancelConnection,
+    onDropOnEmpty: ({ sourceNodeId, stagePoint, canvasPoint }) => {
+      const sourceNode = allNodesRef.current.find((node) => node.id === sourceNodeId)
+      const sourceCanSeedMedia = sourceNode?.result?.type === 'image' && Boolean(sourceNode.result.url)
+      if (!sourceCanSeedMedia || !stageRef.current) {
+        cancelConnection()
+        return
+      }
+      const rect = stageRef.current.getBoundingClientRect()
+      const menuWidth = 132
+      const menuHeight = 76
+      setContextNodeMenu(null)
+      setConnectionCreateMenu({
+        sourceNodeId,
+        stageX: clampNumber(stagePoint.x, 8, Math.max(8, rect.width - menuWidth - 8)),
+        stageY: clampNumber(stagePoint.y, 8, Math.max(8, rect.height - menuHeight - 8)),
+        canvasX: Math.round(canvasPoint.x),
+        canvasY: Math.round(canvasPoint.y),
+      })
+    },
   })
 
   const handleGroupSelectedNodes = React.useCallback(() => {
@@ -371,6 +424,20 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
       categoryId: activeCategoryId,
     })
     setContextNodeMenu(null)
+  }
+
+  const handleAddConnectedNode = (kind: GenerationNodeKind) => {
+    if (!connectionCreateMenu) return
+    const sourceNodeId = connectionCreateMenu.sourceNodeId
+    const created = addNode({
+      kind,
+      position: { x: connectionCreateMenu.canvasX, y: connectionCreateMenu.canvasY },
+      categoryId: activeCategoryId,
+      select: true,
+    })
+    startConnection(sourceNodeId)
+    completeNodeConnection(created.id)
+    setConnectionCreateMenu(null)
   }
 
   // animate=true：用户点「适应视图」按钮，平滑过渡；自动加载（useAutoFitOnLoad）传 false 即时定位，避免每次开项目都「飞入」。
@@ -577,6 +644,16 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
               onPointerDown={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
               onAddNode={handleAddContextNode}
+            />
+          ) : null}
+          {connectionCreateMenu ? (
+            <NodeAddMenu
+              className={cn('generation-canvas-v2__connection-create-menu', 'z-[20] left-auto w-[132px]')}
+              style={{ left: connectionCreateMenu.stageX, top: connectionCreateMenu.stageY }}
+              kinds={['image', 'video']}
+              onPointerDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+              onAddNode={handleAddConnectedNode}
             />
           ) : null}
         </div>

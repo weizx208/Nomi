@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useGenerationCanvasStore } from './generationCanvasStore'
-import type { GenerationCanvasNode, NodeGroup } from '../model/generationCanvasTypes'
+import type { GenerationCanvasNode, GenerationNodeResult, NodeGroup } from '../model/generationCanvasTypes'
 
 function node(id: string, categoryId: GenerationCanvasNode['categoryId'], groupId?: string): GenerationCanvasNode {
   return {
@@ -23,6 +23,10 @@ function group(id: string, categoryId: NodeGroup['categoryId'], nodeIds: string[
     createdAt: 1,
     updatedAt: 1,
   }
+}
+
+function imageResult(id: string, url: string): GenerationNodeResult {
+  return { id, type: 'image', url, createdAt: 1 }
 }
 
 describe('generationCanvasStore snapshot normalization', () => {
@@ -338,6 +342,96 @@ describe('generationCanvasStore sidebar grouping actions', () => {
     expect(state.groups.map((candidate) => candidate.id)).toEqual(['cast-group', 'cast-group-2'])
     expect(state.nodes.find((candidate) => candidate.id === 'cast-1')?.groupId).toBe('cast-group')
     expect(state.nodes.find((candidate) => candidate.id === 'cast-2')?.groupId).toBe('cast-group-2')
+  })
+})
+
+describe('generationCanvasStore result history', () => {
+  it('keeps the previous main image when a new result is added', () => {
+    const first = imageResult('r-old', 'https://cdn/old.png')
+    const next = imageResult('r-new', 'https://cdn/new.png')
+    useGenerationCanvasStore.getState().restoreSnapshot({
+      nodes: [
+        {
+          ...node('image-1', 'shots'),
+          result: first,
+          history: [],
+          status: 'success',
+        },
+      ],
+      edges: [],
+      selectedNodeIds: [],
+      groups: [],
+    })
+
+    useGenerationCanvasStore.getState().addNodeResult('image-1', next)
+
+    const stateNode = useGenerationCanvasStore.getState().nodes.find((candidate) => candidate.id === 'image-1')
+    expect(stateNode?.result?.id).toBe('r-new')
+    expect(stateNode?.history?.map((entry) => entry.id)).toEqual(['r-new', 'r-old'])
+  })
+
+  it('can switch the main image while keeping the previous one in history', () => {
+    const first = imageResult('r-old', 'https://cdn/old.png')
+    const next = imageResult('r-new', 'https://cdn/new.png')
+    useGenerationCanvasStore.getState().restoreSnapshot({
+      nodes: [
+        {
+          ...node('image-1', 'shots'),
+          result: next,
+          history: [next, first],
+          status: 'success',
+        },
+      ],
+      edges: [],
+      selectedNodeIds: [],
+      groups: [],
+    })
+
+    useGenerationCanvasStore.getState().updateNode('image-1', {
+      result: first,
+      history: [first, next],
+      status: 'success',
+      error: undefined,
+    })
+
+    const stateNode = useGenerationCanvasStore.getState().nodes.find((candidate) => candidate.id === 'image-1')
+    expect(stateNode?.result?.id).toBe('r-old')
+    expect(stateNode?.history?.map((entry) => entry.id)).toEqual(['r-old', 'r-new'])
+  })
+
+  it('can switch the main image using a fresh result object from history', () => {
+    const first = imageResult('r-old', 'https://cdn/old.png')
+    const next = imageResult('r-new', 'https://cdn/new.png')
+    useGenerationCanvasStore.getState().restoreSnapshot({
+      nodes: [
+        {
+          ...node('image-1', 'shots'),
+          result: next,
+          history: [next, first],
+          status: 'success',
+        },
+      ],
+      edges: [],
+      selectedNodeIds: [],
+      groups: [],
+    })
+
+    const latest = useGenerationCanvasStore.getState().nodes.find((candidate) => candidate.id === 'image-1')
+    const target = latest?.history?.find((entry) => entry.id === 'r-old')
+    expect(target).toBeTruthy()
+
+    useGenerationCanvasStore.getState().updateNode('image-1', {
+      result: { ...target! },
+      history: [{ ...target! }, next],
+      status: 'success',
+      error: undefined,
+    })
+
+    const stateNode = useGenerationCanvasStore.getState().nodes.find((candidate) => candidate.id === 'image-1')
+    expect(stateNode?.result).not.toBe(target)
+    expect(stateNode?.result?.id).toBe('r-old')
+    expect(stateNode?.result?.url).toBe('https://cdn/old.png')
+    expect(stateNode?.history?.map((entry) => entry.id)).toEqual(['r-old', 'r-new'])
   })
 })
 

@@ -20,6 +20,7 @@ const PRIMARY_ADD_ITEMS = PRIMARY_NODE_KINDS
 type NodeAddMenuProps = {
   className?: string
   style?: React.CSSProperties
+  kinds?: GenerationNodeKind[]
   onAddNode: (kind: GenerationNodeKind) => void
   onContextMenu?: React.MouseEventHandler<HTMLDivElement>
   onPointerDown?: React.PointerEventHandler<HTMLDivElement>
@@ -28,10 +29,16 @@ type NodeAddMenuProps = {
 export function NodeAddMenu({
   className,
   style,
+  kinds,
   onAddNode,
   onContextMenu,
   onPointerDown,
 }: NodeAddMenuProps): JSX.Element {
+  const items = React.useMemo(() => {
+    if (!kinds?.length) return PRIMARY_ADD_ITEMS
+    const allowed = new Set(kinds)
+    return PRIMARY_ADD_ITEMS.filter((item) => allowed.has(item.kind))
+  }, [kinds])
   return (
     <div
       className={cn(
@@ -47,7 +54,7 @@ export function NodeAddMenu({
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
     >
-      {PRIMARY_ADD_ITEMS.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon
         return (
           <button

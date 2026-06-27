@@ -10,8 +10,9 @@ import { useGenerationCanvasStore } from '../../store/generationCanvasStore'
 import { persistNodeImageFile } from '../../adapters/persistNodeImage'
 import WhiteboardDrawingTool, { type WhiteboardDrawingToolHandle, type WhiteboardResultLibraryItem } from './WhiteboardDrawingTool'
 import type { WhiteboardInitialImage, WhiteboardState } from './whiteboardTypes'
-import { serializeWhiteboardState } from './whiteboardState'
+import { readWhiteboardState, serializeWhiteboardState } from './whiteboardState'
 import { getCanvasDimensions } from './lib/canvas'
+import { mediaNodeSize } from '../nodeSizing'
 
 type WhiteboardModalProps = {
   nodeId: string
@@ -31,6 +32,35 @@ function makeWhiteboardSnapshotResult(nodeId: string, url: string): GenerationNo
   }
 }
 
+function mergeWhiteboardSnapshotHistory(
+  nextResult: GenerationNodeResult,
+  previousResult: GenerationNodeResult | undefined,
+  previousHistory: GenerationNodeResult[] | undefined,
+): GenerationNodeResult[] {
+  const history: GenerationNodeResult[] = []
+  const seen = new Set<string>()
+  const add = (result: GenerationNodeResult | undefined) => {
+    if (!result) return
+    const key = result.id || result.url || result.thumbnailUrl || result.text || ''
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    history.push(result)
+  }
+  add(nextResult)
+  add(previousResult)
+  ;(previousHistory || []).forEach(add)
+  return history
+}
+
+function dimensionsForWhiteboardState(state: WhiteboardState | null): ReturnType<typeof getCanvasDimensions> | null {
+  return state ? getCanvasDimensions(state.activeRatio, 1280) : null
+}
+
+function isSameWhiteboardState(a: WhiteboardState | undefined, b: WhiteboardState | null): boolean {
+  if (!a || !b) return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 export default function WhiteboardModal({
   nodeId,
   sourceKind,
@@ -47,6 +77,7 @@ export default function WhiteboardModal({
   const sourceNode = useGenerationCanvasStore((state) => state.nodes.find((node) => node.id === nodeId) || null)
   const canvasImageItems = useGenerationCanvasStore((state) => getAllCanvasImageResults(state.nodes, nodeId))
   const resultItems = useGenerationCanvasStore((state) => getConnectedImageResults(state.nodes, state.edges, nodeId))
+  const savingRef = React.useRef(false)
 
   React.useEffect(() => {
     if (typeof document === 'undefined') return undefined
@@ -61,26 +92,102 @@ export default function WhiteboardModal({
     }
   }, [])
 
-  const persistWhiteboardState = React.useCallback(() => {
-    if (sourceKind !== 'whiteboard') return
+  const persistWhiteboardState = React.useCallback((stateOverride?: WhiteboardState | null) => {
     const nextState = drawingRef.current?.getState()
-    if (!nextState) return
+    const serializedState = stateOverride || nextState
+    if (!serializedState) return null
     const latest = useGenerationCanvasStore.getState().nodes.find((node) => node.id === nodeId)
     updateNode(nodeId, {
       meta: {
         ...(latest?.meta || {}),
-        whiteboardState: serializeWhiteboardState(nextState),
+        whiteboardState: serializeWhiteboardState(serializedState),
       },
     })
-  }, [nodeId, sourceKind, updateNode])
+    return serializeWhiteboardState(serializedState)
+  }, [nodeId, updateNode])
 
-  const handleClose = React.useCallback(() => {
-    persistWhiteboardState()
+  const exitFullscreenIfNeeded = React.useCallback(() => {
     if (typeof document !== 'undefined' && document.fullscreenElement) {
       void document.exitFullscreen()
     }
-    onClose()
-  }, [onClose, persistWhiteboardState])
+  }, [])
+
+  const captureFile = React.useCallback(() => {
+    const filename = `nomi-whiteboard-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
+    if (!drawingRef.current) throw new Error('画布还未准备好')
+    return drawingRef.current.captureViewportFile(filename)
+  }, [])
+
+  const saveImageWhiteboardSnapshot = React.useCallback(async (
+    whiteboardState: WhiteboardState | null,
+    options?: { skipIfUnchanged?: boolean },
+  ) => {
+    const latestSource = useGenerationCanvasStore.getState().nodes.find((node) => node.id === nodeId)
+    if (!latestSource) throw new Error('图片节点不存在')
+    const serializedState = whiteboardState ? serializeWhiteboardState(whiteboardState) : null
+    if (options?.skipIfUnchanged && serializedState && isSameWhiteboardState(readWhiteboardState(latestSource), serializedState)) {
+      return false
+    }
+
+    const file = await captureFile()
+    const snapshotUrl = await persistNodeImageFile(file, nodeId)
+    if (!snapshotUrl) throw new Error('画板截图保存失败，请稍后重试')
+
+    const dimensions = dimensionsForWhiteboardState(serializedState)
+    const snapshotResult = makeWhiteboardSnapshotResult(nodeId, snapshotUrl)
+    const snapshotSize = dimensions ? mediaNodeSize(dimensions.width, dimensions.height, latestSource.size?.width) : null
+    updateNode(nodeId, {
+      result: snapshotResult,
+      history: mergeWhiteboardSnapshotHistory(snapshotResult, latestSource.result, latestSource.history),
+      status: 'success',
+      error: undefined,
+      progress: undefined,
+      ...(snapshotSize && latestSource.meta?.userResized !== true
+        ? { size: { width: snapshotSize.width, height: snapshotSize.height } }
+        : {}),
+      meta: {
+        ...(latestSource.meta || {}),
+        source: 'whiteboard-edit',
+        localOnly: false,
+        uploadStatus: 'uploaded',
+        ...(serializedState ? { whiteboardState: serializedState } : {}),
+        ...(dimensions
+          ? {
+              imageWidth: dimensions.width,
+              imageHeight: dimensions.height,
+              imageAspectRatio: dimensions.width / Math.max(1, dimensions.height),
+              previewHeight: snapshotSize?.previewHeight ?? latestSource.meta?.previewHeight,
+            }
+          : {}),
+      },
+    })
+    return true
+  }, [captureFile, nodeId, updateNode])
+
+  const handleClose = React.useCallback(() => {
+    if (savingRef.current) return
+    const currentWhiteboardState = drawingRef.current?.getState() || null
+    if (sourceKind !== 'image') {
+      persistWhiteboardState(currentWhiteboardState)
+      exitFullscreenIfNeeded()
+      onClose()
+      return
+    }
+    savingRef.current = true
+    setScreenshotBusy(true)
+    void (async () => {
+      try {
+        const saved = await saveImageWhiteboardSnapshot(currentWhiteboardState, { skipIfUnchanged: true })
+        if (saved) toast('已保存为主图', 'success')
+        exitFullscreenIfNeeded()
+        onClose()
+      } catch (error) {
+        savingRef.current = false
+        setScreenshotBusy(false)
+        toast(error instanceof Error && error.message ? error.message : '画板保存失败', 'error')
+      }
+    })()
+  }, [exitFullscreenIfNeeded, onClose, persistWhiteboardState, saveImageWhiteboardSnapshot, sourceKind])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -93,25 +200,26 @@ export default function WhiteboardModal({
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
   }, [handleClose])
 
-  const captureFile = React.useCallback(() => {
-    const filename = `nomi-whiteboard-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
-    if (!drawingRef.current) throw new Error('画布还未准备好')
-    return drawingRef.current.captureViewportFile(filename)
-  }, [])
-
   const handleCreateScreenshotNode = React.useCallback(async () => {
     if (screenshotBusy) return
     setScreenshotBusy(true)
     try {
-      persistWhiteboardState()
+      const currentWhiteboardState = drawingRef.current?.getState() || null
+      if (sourceKind === 'image') {
+        await saveImageWhiteboardSnapshot(currentWhiteboardState)
+        toast('已保存为主图', 'success')
+        return
+      }
+
+      persistWhiteboardState(currentWhiteboardState)
       const file = await captureFile()
       const snapshotUrl = await persistNodeImageFile(file, nodeId)
       if (!snapshotUrl) throw new Error('画板截图保存失败，请稍后重试')
 
       const latestState = useGenerationCanvasStore.getState()
       const latestSource = latestState.nodes.find((node) => node.id === nodeId)
-      const currentWhiteboardState = drawingRef.current?.getState()
-      const dimensions = currentWhiteboardState ? getCanvasDimensions(currentWhiteboardState.activeRatio, 1280) : null
+      const dimensions = dimensionsForWhiteboardState(currentWhiteboardState)
+
       const created = addNode({
         kind: 'image',
         title: `${latestSource?.title || '画板'} 截图`,
@@ -155,7 +263,7 @@ export default function WhiteboardModal({
     } finally {
       setScreenshotBusy(false)
     }
-  }, [addNode, captureFile, connectNodes, nodeId, persistWhiteboardState, screenshotBusy, sourceKind, updateNode])
+  }, [addNode, captureFile, connectNodes, nodeId, persistWhiteboardState, saveImageWhiteboardSnapshot, screenshotBusy, sourceKind, updateNode])
 
   const shell = (
     <div
@@ -196,6 +304,8 @@ export default function WhiteboardModal({
             canvasImageItems={canvasImageItems}
             resultItems={resultItems}
             screenshotBusy={screenshotBusy}
+            screenshotLabel={sourceKind === 'image' ? '保存为主图' : '截图并创建图片节点'}
+            focusResultsOnScreenshot={sourceKind !== 'image'}
             onScreenshot={() => { void handleCreateScreenshotNode() }}
           />
         </div>
