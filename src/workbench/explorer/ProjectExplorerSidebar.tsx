@@ -3,8 +3,10 @@ import { IconCategory, IconFolder, IconPlus } from '@tabler/icons-react'
 import { cn } from '../../utils/cn'
 import { type ProjectCategory } from '../project/projectCategories'
 import { useWorkbenchStore } from '../workbenchStore'
-import CategoryTree from '../sidebar/CategoryTree'
-import WorkspaceFileExplorerPanel from './WorkspaceFileExplorerPanel'
+import { lazyWithChunkBoundary } from '../../ui/chunkBoundary'
+
+const CategoryTree = lazyWithChunkBoundary('分类面板', () => import('../sidebar/CategoryTree'))
+const WorkspaceFileExplorerPanel = lazyWithChunkBoundary('项目文件面板', () => import('./WorkspaceFileExplorerPanel'))
 
 type Props = {
   categories?: ProjectCategory[]
@@ -72,10 +74,14 @@ export default function ProjectExplorerSidebar({ categories, projectId = null }:
           <button type="button" onClick={() => { setTab('categories'); toggle() }} className="w-9 h-8 grid place-items-center rounded-nomi-sm text-nomi-ink-40 hover:text-nomi-ink hover:bg-nomi-bg" aria-label="展开分类面板" title="分类"><IconCategory size={16} stroke={1.5} /></button>
           <button type="button" onClick={() => { setTab('files'); toggle() }} className="w-9 h-8 grid place-items-center rounded-nomi-sm text-nomi-ink-40 hover:text-nomi-ink hover:bg-nomi-bg" aria-label="展开文件面板" title="文件"><IconFolder size={16} stroke={1.5} /></button>
         </div>
-      ) : tab === 'files' ? (
-        <WorkspaceFileExplorerPanel projectId={projectId} />
       ) : (
-        <CategoryTree categories={categories} createCategoryNonce={createCategoryNonce} />
+        <React.Suspense fallback={null}>
+          {tab === 'files' ? (
+            <WorkspaceFileExplorerPanel projectId={projectId} />
+          ) : (
+            <CategoryTree categories={categories} createCategoryNonce={createCategoryNonce} />
+          )}
+        </React.Suspense>
       )}
     </aside>
   )

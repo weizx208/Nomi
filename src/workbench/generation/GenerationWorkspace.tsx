@@ -2,8 +2,10 @@ import React from 'react'
 import { IconChevronUp, IconMovie } from '@tabler/icons-react'
 import { WorkbenchIconButton } from '../../design'
 import { cn } from '../../utils/cn'
-import TimelinePanel from '../timeline/TimelinePanel'
+import { lazyWithChunkBoundary } from '../../ui/chunkBoundary'
 import { useWorkbenchStore } from '../workbenchStore'
+
+const TimelinePanel = lazyWithChunkBoundary('生成时间轴', () => import('../timeline/TimelinePanel'))
 
 type GenerationWorkspaceProps = {
   canvas: React.ReactNode
@@ -18,7 +20,7 @@ export default function GenerationWorkspace({
 }: GenerationWorkspaceProps): JSX.Element {
   const width = useWorkbenchStore((s) => s.assistantWidth)
   const setWidth = useWorkbenchStore((s) => s.setAssistantWidth)
-  const [timelineCollapsed, setTimelineCollapsed] = React.useState(false)
+  const [timelineCollapsed, setTimelineCollapsed] = React.useState(true)
   const dragRef = React.useRef<{ startX: number; startW: number } | null>(null)
   const onPointerDown = React.useCallback((e: React.PointerEvent) => {
     dragRef.current = { startX: e.clientX, startW: width }
@@ -125,12 +127,14 @@ export default function GenerationWorkspace({
             />
           </section>
         ) : (
-          <TimelinePanel
-            density="compact"
-            regionLabel="生成时间轴"
-            actionLabelPrefix="生成时间轴-"
-            onCollapse={() => setTimelineCollapsed(true)}
-          />
+          <React.Suspense fallback={null}>
+            <TimelinePanel
+              density="compact"
+              regionLabel="生成时间轴"
+              actionLabelPrefix="生成时间轴-"
+              onCollapse={() => setTimelineCollapsed(true)}
+            />
+          </React.Suspense>
         )}
       </div>
     </section>

@@ -7,13 +7,13 @@ import CanvasToolbar, { NodeAddMenu } from './CanvasToolbar'
 import { WORKSPACE_FILE_DRAG_MIME } from '../../explorer/workspaceFileDrag'
 import { ASSET_LIBRARY_DRAG_MIME } from '../../assets/assetLibraryDrag'
 import { handleCanvasStageDrop } from './canvasStageDrop'
-import type { GenerationNodeKind } from '../model/generationCanvasTypes'
+import type { GenerationCanvasNode, GenerationNodeKind } from '../model/generationCanvasTypes'
 import { isImageLikeGenerationNodeKind } from '../model/generationNodeKinds'
 import { getGenerationNodeComponent } from '../nodes/renderRegistry'
 import { completeNodeConnection } from '../nodes/completeNodeConnection'
 import { useGenerationCanvasStore } from '../store/generationCanvasStore'
 import { buildDependencyWaves } from '../runner/dependencyWaves'
-import { confirmAndRunPlan } from './batchPlanPreview'
+import { confirmAndRunPlan, useBatchPlanPreviewStore } from './batchPlanPreview'
 import { useWorkbenchStore } from '../../workbenchStore'
 import { GroupFrameList } from './GroupFrame'
 import { useAutoFitOnLoad } from './useAutoFitOnLoad'
@@ -35,14 +35,100 @@ import {
 import { useCanvasViewport } from './useCanvasViewport'
 import CanvasEdgeLayer, { type ActiveEdge } from './CanvasEdgeLayer'
 import type { ConnectionAnchorSide } from '../store/canvasStoreTypes'
-import { StagingCaptureHost } from '../nodes/scene3d/StagingCaptureHost'
-import { CameraMoveCaptureHost } from '../nodes/scene3d/CameraMoveCaptureHost'
+import { shouldRenderFullNodeContent, shouldUseLightweightNodeRendering } from './canvasNodeLevelOfDetail'
+import { hasPendingScene3DCameraMoveCapture, hasPendingScene3DStagingCapture } from './scene3dCaptureHostActivation'
+import { lazyWithChunkBoundary } from '../../../ui/chunkBoundary'
 import '../styles/generationCanvas.css'
 
 const FOCUS_GENERATION_NODE_EVENT = 'nomi-focus-generation-node'
+const StagingCaptureHost = lazyWithChunkBoundary('3D 站位捕获', () =>
+  import('../nodes/scene3d/StagingCaptureHost').then((module) => ({ default: module.StagingCaptureHost })),
+)
+const CameraMoveCaptureHost = lazyWithChunkBoundary('3D 运镜捕获', () =>
+  import('../nodes/scene3d/CameraMoveCaptureHost').then((module) => ({ default: module.CameraMoveCaptureHost })),
+)
+const BatchPlanOverlay = lazyWithChunkBoundary('批量生成面板', () =>
+  import('./BatchPlanOverlay').then((module) => ({ default: module.BatchPlanOverlay })),
+)
 
 type GenerationCanvasProps = {
   readOnly?: boolean
+}
+
+function LightweightGenerationNode({
+  node,
+  appear,
+  onSelect,
+}: {
+  node: GenerationCanvasNode
+  appear: boolean
+  onSelect: (nodeId: string, additive: boolean) => void
+}): JSX.Element {
+  const size = getNodeSize(node)
+  const status = node.status || 'idle'
+  const statusLabel =
+    status === 'queued'
+      ? '排队中'
+      : status === 'running'
+        ? node.progress?.message || '生成中'
+        : status === 'error'
+          ? '失败'
+          : status === 'success'
+            ? '已生成'
+            : '待生成'
+  return (
+    <article
+      className={cn(
+        'generation-canvas-v2-node',
+        'absolute p-0 border-0 rounded-none bg-transparent shadow-none',
+        'cursor-pointer select-none touch-none overflow-visible',
+        'block',
+      )}
+      data-node-id={node.id}
+      data-kind={node.kind}
+      data-render-mode="lightweight"
+      data-appear={appear ? 'true' : undefined}
+      style={{
+        transform: `translate(${node.position.x}px, ${node.position.y}px)`,
+        width: size.width,
+        height: size.height,
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        onSelect(node.id, event.shiftKey || event.metaKey || event.ctrlKey)
+      }}
+    >
+      <div
+        className={cn(
+          'w-full h-full overflow-hidden rounded-nomi border border-nomi-line',
+          'bg-nomi-paper/90 shadow-nomi-sm',
+          'grid grid-rows-[4px_minmax(0,1fr)]',
+        )}
+      >
+        <div
+          className={cn(
+            'w-full',
+            status === 'error'
+              ? 'bg-workbench-danger'
+              : status === 'success'
+                ? 'bg-workbench-success'
+                : status === 'queued' || status === 'running'
+                  ? 'bg-nomi-accent'
+                  : 'bg-nomi-ink-20',
+          )}
+        />
+        <div className="min-w-0 min-h-0 p-3 flex flex-col justify-between gap-2">
+          <div className="min-w-0 truncate text-body-sm font-medium text-nomi-ink">
+            {node.title || '未命名节点'}
+          </div>
+          <div className="min-w-0 truncate text-micro text-nomi-ink-50">
+            {statusLabel}
+          </div>
+        </div>
+      </div>
+    </article>
+  )
 }
 
 export default function GenerationCanvas({ readOnly = false }: GenerationCanvasProps): JSX.Element {
@@ -50,6 +136,9 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
   const allNodes = useGenerationCanvasStore((state) => state.nodes)
   const allEdges = useGenerationCanvasStore((state) => state.edges)
   const allGroups = useGenerationCanvasStore((state) => state.groups)
+  const hasPendingStagingCapture = useGenerationCanvasStore((state) => hasPendingScene3DStagingCapture(state.nodes))
+  const hasPendingCameraMoveCapture = useGenerationCanvasStore((state) => hasPendingScene3DCameraMoveCapture(state.nodes))
+  const hasBatchPlanPreview = useBatchPlanPreviewStore((state) => Boolean(state.plan))
   const activeCategoryId = useWorkbenchStore((state) => state.activeCategoryId)
   const setActiveCategoryId = useWorkbenchStore((state) => state.setActiveCategoryId)
   // Phase E3: filter nodes by active sub-canvas. Nodes with no categoryId
@@ -117,6 +206,10 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
     zoomRef,
     stageSizeRef,
   } = useCanvasViewport(activeCategoryId, nodes)
+  const edgesForRender = React.useMemo(() => {
+    if (!visibleEdgeNodeIds) return edges
+    return edges.filter((edge) => visibleEdgeNodeIds.has(edge.source) || visibleEdgeNodeIds.has(edge.target))
+  }, [edges, visibleEdgeNodeIds])
   // 出现动画：只让**新落点**节点弹入（add/paste/Agent），开项目时已有节点不齐闪（实现见 hook）。
   const appearNodeIds = useNodeAppearTracking(allNodes)
   const { isTidying, tidy } = useTidyCanvas(activeCategoryId)
@@ -513,6 +606,14 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
 
   const zoomPercent = Math.round(zoom * 100)
   const selectedCount = selectedNodeIds.length
+  const lightweightNodeMode = shouldUseLightweightNodeRendering(nodes.length, zoom)
+  const handleSelectLightweightNode = React.useCallback(
+    (nodeId: string, additive: boolean) => {
+      if (readOnly) return
+      selectNode(nodeId, additive)
+    },
+    [readOnly, selectNode],
+  )
 
   // E.2C-13: 删除 viewType 分支。5 个分类全部走同一画布底座。
   // 节点渲染样式差异由 NodeRenderKind 分发（E.2C-14/15+ 实现）。
@@ -527,8 +628,12 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
       data-ready={isReady ? 'true' : undefined}
     >
       <div className={cn('generation-canvas-v2__main', 'relative w-full h-full min-w-0 min-h-0')}>
-        <StagingCaptureHost />
-        <CameraMoveCaptureHost />
+        {hasPendingStagingCapture || hasPendingCameraMoveCapture ? (
+          <React.Suspense fallback={null}>
+            {hasPendingStagingCapture ? <StagingCaptureHost /> : null}
+            {hasPendingCameraMoveCapture ? <CameraMoveCaptureHost /> : null}
+          </React.Suspense>
+        ) : null}
         {!readOnly ? <CanvasToolbar getInsertionPosition={getToolbarInsertionPosition} categoryId={activeCategoryId} /> : null}
         <div
           className="generation-canvas-v2__stage"
@@ -555,10 +660,11 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
             style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})` }}
           >
             <CanvasEdgeLayer
-              edges={edges}
+              edges={edgesForRender}
               nodeById={nodeById}
               zoom={zoom}
               visibleNodeIds={visibleEdgeNodeIds}
+              lightweight={lightweightNodeMode}
               focusedNodeId={selectedNodeIds.length === 1 ? selectedNodeIds[0] : null}
               activeEdge={activeEdge}
               readOnly={readOnly}
@@ -574,14 +680,26 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
               <GroupFrameList boxes={groupBoxes} onPointerDown={handleGroupFramePointerDown} />
               <React.Suspense fallback={null}>
                 {visibleNodesForRender.map((node) => {
+                  const selected = selectedSet.has(node.id)
+                  const focusFlash = focusFlashNodeId === node.id
+                  if (!shouldRenderFullNodeContent({ lightweightMode: lightweightNodeMode, selected, focusFlash })) {
+                    return (
+                      <LightweightGenerationNode
+                        key={node.id}
+                        node={node}
+                        appear={appearNodeIds.has(node.id)}
+                        onSelect={handleSelectLightweightNode}
+                      />
+                    )
+                  }
                   const NodeComponent = getGenerationNodeComponent(node.kind)
                   return (
                     <NodeComponent
                       key={node.id}
                       node={node}
-                      selected={selectedSet.has(node.id)}
+                      selected={selected}
                       readOnly={readOnly}
-                      focusFlash={focusFlashNodeId === node.id}
+                      focusFlash={focusFlash}
                       appear={appearNodeIds.has(node.id)}
                     />
                   )
@@ -668,6 +786,11 @@ export default function GenerationCanvas({ readOnly = false }: GenerationCanvasP
             />
           ) : null}
         </div>
+        {hasBatchPlanPreview ? (
+          <React.Suspense fallback={null}>
+            <BatchPlanOverlay />
+          </React.Suspense>
+        ) : null}
         <div
           className={cn(
             'generation-canvas-v2__zoom-bar',

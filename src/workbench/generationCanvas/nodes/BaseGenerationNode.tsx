@@ -2,8 +2,8 @@ import React from 'react'
 import {
   IconCheck,
   IconCopy,
+  IconDownload,
   IconInfoCircle,
-  IconLayoutGrid,
   IconMaximize,
   IconUpload,
 } from '@tabler/icons-react'
@@ -12,7 +12,6 @@ import { resolveNodeRenderKind, isCardRenderKind } from './resolveRenderKind'
 import ShotMountBadges from './render/ShotMountBadges'
 import { getBuiltinCategoryById } from '../../project/projectCategories'
 import { NodeCardBody } from './render/NodeCardBody'
-import TextDocumentNode from './render/TextDocumentNode'
 import ImageCropGridOverlay from './render/ImageCropGridOverlay'
 import NodeImageEditToolbar from './NodeImageEditToolbar'
 import NodeResultDownloadButton from './NodeResultDownloadButton'
@@ -34,7 +33,7 @@ import PanoramaUploadFallback from './PanoramaUploadFallback'
 import { MagneticConnectionHandle } from './NodeConnectionHandles'
 import { SideTimelineDragHandle, TimelineNotchDragHandle } from './NodeTimelineDragHandles'
 import { cn } from '../../../utils/cn'
-import { NomiImage } from '../../../design/media'
+import { DeferredNodeImage, DeferredNodeVideo } from './DeferredNodeMedia'
 import { persistNodeImageFile } from '../adapters/persistNodeImage'
 import type { GenerationCanvasNode } from '../model/generationCanvasTypes'
 import type { ConnectionAnchorSide } from '../store/canvasStoreTypes'
@@ -53,15 +52,15 @@ import { NodeErrorReport } from './NodeErrorReport'
 import { NodeRecoverableReport } from './NodeRecoverableReport'
 import { dismissRecoverableNode, recoverNodeResult } from '../runner/recoverTaskActions'
 import { WorkbenchButton } from '../../../design'
-import NodeGenerationComposer from './NodeGenerationComposer'
 import { completeNodeConnection } from './completeNodeConnection'
 import { buildVideoPlaybackUrl } from '../../../media/videoPlaybackUrl'
 import { diagnoseVideoPlaybackFailure, logVideoPlaybackFailure } from '../../../media/videoPlaybackDiagnostics'
-import PanoramaViewer, { type PanoramaScreenshot } from './PanoramaViewer'
+import type { PanoramaScreenshot } from './PanoramaViewer'
 import { getGenerationNodeExecutionKind, isImageLikeGenerationNodeKind } from '../model/generationNodeKinds'
 import { applyFixationMakeup } from '../fixation/buildFixationNode'
 import { TechnicalReviewBadge } from './TechnicalReviewBadge'
 import { canDragGenerationNodeToTimeline } from '../model/timelineDragAffordance'
+import { useResultDownload } from './useResultDownload'
 import {
   STATUS_LABEL,
   RESIZE_DIRECTIONS,
@@ -81,6 +80,13 @@ export type BaseGenerationNodeProps = {
 }
 const Scene3DEditor = lazyWithChunkBoundary('3D 场景编辑器', () => import('./Scene3DEditor')) // A5：chunk 失败只降级本卡
 const Model3DViewer = lazyWithChunkBoundary('3D 模型预览', () => import('./model3d/Model3DViewer')) // 生成出的 .glb 卡内可旋转预览（R3F）
+const TextDocumentNode = lazyWithChunkBoundary('文本节点编辑器', () => import('./render/TextDocumentNode'))
+const PanoramaViewer = lazyWithChunkBoundary('全景预览', () => import('./PanoramaViewer'))
+const NodeGenerationComposer = lazyWithChunkBoundary('节点生成面板', () => import('./NodeGenerationComposer'))
+
+function NodeBodyLoading(): JSX.Element {
+  return <div className="h-full w-full rounded-nomi bg-nomi-paper shadow-nomi-md ring-1 ring-inset ring-nomi-line" />
+}
 
 function BaseGenerationNodeImpl({
   node,
@@ -124,7 +130,6 @@ function BaseGenerationNodeImpl({
   )
   // perf：canvasZoom 仅事件处理器用、渲染从不读它；改按需 getState() 避免缩放时全节点重渲。
   const panoramaFullscreenRef = React.useRef<(() => void) | null>(null)
-  const panoramaFourViewRef = React.useRef<(() => void) | null>(null)
   const panoramaUploadInputRef = React.useRef<HTMLInputElement | null>(null)
   // E11: provenance viewer open state (mounted into node header for AI-generated assets)
   const [provenanceOpen, setProvenanceOpen] = React.useState(false)
@@ -229,6 +234,7 @@ function BaseGenerationNodeImpl({
   // C5: 文本节点走专属可编辑 body（TextDocumentNode），像 card 那样脱离图片预览。
   const isTextKind = node.kind === 'text'
   const hasResult = Boolean(node.result?.url)
+  const mediaPreviewPriority = selected || focusFlash
   const isRemoveBackgroundPending =
     (node.status === 'queued' || node.status === 'running') && node.progress?.phase === 'remove-background'
   // 可视尺寸（卡片固定宽 / 动态高）的单一真相源 resolveNodeVisualSize——连线锚点 / 最小地图 /
@@ -329,6 +335,7 @@ function BaseGenerationNodeImpl({
         },
       })
       storeConnectNodes(node.id, screenshotNode.id, 'reference')
+      toast('已创建全景截图节点', 'success')
     },
     [addNode, node.id, node.position.x, node.position.y, storeConnectNodes, updateNode, visualSize.width],
   )
@@ -336,13 +343,16 @@ function BaseGenerationNodeImpl({
   // 图片本地编辑（切图 / 裁剪 / 旋转翻转）—— A1.5 抽进 useNodeImageEditing。
   // 图片类与素材类共用；编辑产物进入当前节点历史堆叠，并切换为主图。
   const imageEditing = useNodeImageEditing(node, visualSize)
+  const { downloading: panoramaDownloading, download: downloadPanorama } = useResultDownload(node)
   const showImageResultStack =
     !isCardKind &&
     !isTextKind &&
+    node.kind !== 'panorama' &&
     node.result?.type === 'image' &&
     Boolean(node.result.url) &&
     (node.kind === 'image' || isAssetKind || isImageLikeGenerationNodeKind(node.kind))
-  const useMagneticConnectionHandles = node.kind === 'image' || isAssetKind || isImageLikeGenerationNodeKind(node.kind)
+  const useMagneticConnectionHandles =
+    node.kind !== 'panorama' && (node.kind === 'image' || isAssetKind || isImageLikeGenerationNodeKind(node.kind))
 
   return (
     <article
@@ -365,13 +375,12 @@ function BaseGenerationNodeImpl({
         width: visualSize.width,
         height: visualSize.height,
         gridTemplateRows: `${previewHeight}px`,
-        willChange: 'transform',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
-      {!readOnly ? (
+      {!readOnly && node.kind !== 'panorama' ? (
         selected && useMagneticConnectionHandles && !isPendingConnectionSource ? (
           <>
             <MagneticConnectionHandle
@@ -448,18 +457,20 @@ function BaseGenerationNodeImpl({
             title="全景预览"
             onClick={() => panoramaFullscreenRef.current?.()}
           />
-          <ToolbarButton
-            icon={<IconLayoutGrid size={TBI.size} stroke={TBI.stroke} />}
-            label="四视图截图"
-            title="四视图截图"
-            onClick={() => panoramaFourViewRef.current?.()}
-          />
           <ToolbarDivider />
           <ToolbarButton
             icon={<IconUpload size={TBI.size} stroke={TBI.stroke} />}
             label="重新上传"
             title="重新上传全景图"
             onClick={() => panoramaUploadInputRef.current?.click()}
+          />
+          <ToolbarDivider />
+          <ToolbarButton
+            icon={<IconDownload size={TBI.size} stroke={TBI.stroke} />}
+            label="下载"
+            title="下载 / 另存到本地"
+            disabled={panoramaDownloading}
+            onClick={downloadPanorama}
           />
           <input
             ref={panoramaUploadInputRef}
@@ -471,7 +482,8 @@ function BaseGenerationNodeImpl({
         </FloatingToolbarShell>
       ) : null}
 
-      {(node.kind === 'image' || isAssetKind || isImageLikeGenerationNodeKind(node.kind)) &&
+      {node.kind !== 'panorama' &&
+      (node.kind === 'image' || isAssetKind || isImageLikeGenerationNodeKind(node.kind)) &&
       selected &&
       !isMultiSelectActive &&
       !readOnly &&
@@ -588,7 +600,9 @@ function BaseGenerationNodeImpl({
       {/* C5: 文本节点。外层不裁剪让浮动格式条浮到节点上方（圆角/阴影/裁剪在 TextDocumentNode 内层 body）。 */}
       {isTextKind ? (
         <div className="w-full h-full">
-          <TextDocumentNode node={node} />
+          <React.Suspense fallback={<NodeBodyLoading />}>
+            <TextDocumentNode node={node} />
+          </React.Suspense>
         </div>
       ) : null}
 
@@ -613,18 +627,17 @@ function BaseGenerationNodeImpl({
           </React.Suspense>
         ) : node.kind === 'panorama' ? (
           node.result?.url || node.meta?.imageUrl ? (
-            <PanoramaViewer
-              imageUrl={(node.result?.url || node.meta?.imageUrl) as string}
-              width={visualSize.width}
-              height={previewHeight}
-              onEnterFullscreen={(trigger) => {
-                panoramaFullscreenRef.current = trigger
-              }}
-              onCaptureFourView={(trigger) => {
-                panoramaFourViewRef.current = trigger
-              }}
-              onScreenshot={handlePanoramaScreenshot}
-            />
+            <React.Suspense fallback={<NodeBodyLoading />}>
+              <PanoramaViewer
+                imageUrl={(node.result?.url || node.meta?.imageUrl) as string}
+                width={visualSize.width}
+                height={previewHeight}
+                onEnterFullscreen={(trigger) => {
+                  panoramaFullscreenRef.current = trigger
+                }}
+                onScreenshot={handlePanoramaScreenshot}
+              />
+            </React.Suspense>
           ) : (
             <PanoramaUploadFallback onChange={handlePanoramaFileChange} />
           )
@@ -634,9 +647,10 @@ function BaseGenerationNodeImpl({
               <Model3DViewer url={node.result.url} />
             </React.Suspense>
           ) : node.result.type === 'video' ? (
-            <video
+            <DeferredNodeVideo
               className={cn('w-full h-full min-h-0 object-contain pointer-events-auto', 'bg-nomi-ink-05 select-none')}
               src={buildVideoPlaybackUrl(node.result.url)}
+              priority={mediaPreviewPriority}
               crossOrigin="use-credentials"
               controls
               muted
@@ -657,7 +671,7 @@ function BaseGenerationNodeImpl({
               }}
             />
           ) : (
-            <NomiImage
+            <DeferredNodeImage
               className={cn(
                 'w-full h-full min-h-0 object-contain pointer-events-none',
                 'select-none',
@@ -665,6 +679,7 @@ function BaseGenerationNodeImpl({
                 isRemoveBackgroundPending && '[animation:_remove-bg-pulse_1.5s_ease-in-out_infinite]',
               )}
               src={node.result.url}
+              priority={mediaPreviewPriority}
               alt=""
               onLoad={(event) => {
                 updateMediaDimensions(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
@@ -748,7 +763,9 @@ function BaseGenerationNodeImpl({
       node.kind !== 'scene3d' &&
       node.kind !== 'whiteboard' &&
       !isAssetKind ? (
-        <NodeGenerationComposer node={node} visualSize={visualSize} />
+        <React.Suspense fallback={null}>
+          <NodeGenerationComposer node={node} visualSize={visualSize} />
+        </React.Suspense>
       ) : null}
       {selected && !readOnly
         ? RESIZE_DIRECTIONS.map((direction) => (
