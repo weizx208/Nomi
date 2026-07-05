@@ -49,8 +49,8 @@ import type {
   ProfileKind,
   Vendor,
 } from "./catalog/types";
-import { selectExecutableModel, selectTaskMapping } from "./catalog/types";
-import { applyHeadlessParamDefaults, taskTemplateParams } from "./catalog/taskParams";
+import { billingKindForTaskKind, selectExecutableModel, selectTaskMapping } from "./catalog/types";
+import { applyHeadlessParamDefaults, imageEditGuardError, taskTemplateParams } from "./catalog/taskParams";
 import { applyParamMap, type ParamMap } from "./catalog/paramTranslate";
 import { assertAndConsumeSpendGrant } from "./spendGrant";
 export type {
@@ -350,14 +350,8 @@ function authHeaders(vendor: Vendor, apiKey: string): Record<string, string> {
 
 // endpoint() 已抽到 electron/vendorEndpoint.ts（纯函数，便于无 electron 的单测）
 
-export function billingKindForTaskKind(kind: ProfileKind): BillingModelKind {
-  if (kind === "text_to_video" || kind === "image_to_video") return "video";
-  if (kind === "chat" || kind === "prompt_refine" || kind === "image_to_prompt") return "text";
-  if (kind === "text_to_audio" || kind === "image_to_audio" || kind === "transcribe") return "audio"; // 音频族走第四路同步收口
-  if (kind === "text_to_3d" || kind === "image_to_3d") return "model3d"; // 3D 族（RunningHub 混元/HiTem/Meshy，输出 glb）
-  return "image";
-}
-
+// billingKindForTaskKind 下沉到 catalog/types（R12 净减）；re-export 保住既有消费方 import 面。
+export { billingKindForTaskKind } from "./catalog/types";
 export { extractAssetUrl } from "./tasks/assetUrlExtract";
 
 export async function localizeTaskAsset(projectId: string, assetUrl: string, type: "image" | "video" | "audio" | "model3d", nodeId?: string): Promise<TaskResult["assets"][number]> {
@@ -535,6 +529,9 @@ export async function runTask(payload: unknown): Promise<TaskResult> {
   const taskId = `task-${crypto.randomUUID()}`;
   const mapping = findTaskMapping(vendorKey, kind, modelKey);
   request.extras = applyHeadlessParamDefaults(request.extras, (model?.meta as { archetypeId?: string } | undefined)?.archetypeId, kind, vendorKey, mapping?.create?.defaultParams); // headless 缺参兜底(档案默认+mapping)
+  // L3 诚实护栏：图生图/图生视频缺参考或缺 mapping → 付费守卫之前拒发人话，绝不静默退化纯文生（判定在 taskParams.imageEditGuardError）。
+  const guardError = imageEditGuardError(kind, request, Boolean(mapping), model.labelZh || model.modelKey);
+  if (guardError) throw new Error(guardError);
   // 第四路 audio：TTS/Whisper 同步收口（二进制/multipart）。付费守卫：必发 vendor，进来即校验消费令牌。
   if (wantedKind === "audio") { assertAndConsumeSpendGrant(grantId, nodeId); return runAudioTask({ vendor, model, apiKey, request, kind, taskId, projectId, nodeId, mapping }); }
   if (mapping) {
