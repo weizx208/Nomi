@@ -365,11 +365,23 @@ export function canDownloadFromBrowserView(url: string): boolean {
   return /^(https?:\/\/|blob:)/i.test(url)
 }
 
-export function faviconForTab(tab: BrowserTab): JSX.Element {
-  // 应用 CSP img-src 只放行 https:/data:/blob:——http 站的 favicon 加载会被拦并刷 console 错，
-  // 干脆不发起请求，直接回退世界图标。
-  if (tab.favicon && /^(https:|data:|blob:)/i.test(tab.favicon)) {
-    return <img src={tab.favicon} alt="" className="size-4 rounded-nomi-sm" draggable={false} />
+export function TabFavicon({ tab }: { tab: BrowserTab }): JSX.Element {
+  // 应用 CSP img-src 只放行 https:/data:/blob:——http favicon 一律不发起请求，直接回退。
+  const loadable = Boolean(tab.favicon && /^(https:|data:|blob:)/i.test(tab.favicon))
+  const [broken, setBroken] = React.useState(false)
+  // 换标签页/换 URL 时重置失败态，让新 favicon 有机会加载。
+  React.useEffect(() => { setBroken(false) }, [tab.favicon])
+  if (loadable && !broken) {
+    return (
+      <img
+        src={tab.favicon}
+        alt=""
+        className="size-4 rounded-nomi-sm"
+        draggable={false}
+        // favicon 常 404/被拦——加载失败必须回退世界图标，否则显示成裂图(用户 2026-07-13 抓出)。
+        onError={() => setBroken(true)}
+      />
+    )
   }
   if (!tab.url) return <IconBrowser size={15} stroke={1.7} aria-hidden="true" />
   return <IconWorld size={15} stroke={1.7} aria-hidden="true" />

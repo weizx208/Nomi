@@ -30,7 +30,7 @@ import {
   TAB_LIMIT,
   TOOL_BUTTON_CLASS,
   captureFlyoutScale,
-  faviconForTab,
+  TabFavicon,
   type BrowserBookmark,
   type BrowserCaptureFlyout,
   type BrowserTab,
@@ -156,7 +156,7 @@ export function NomiBrowserDialogView({
                     }}
                     onContextMenu={(event) => openTabContextMenu(tab, event)}
                   >
-                    <span className="grid size-4 place-items-center text-nomi-ink-40">{faviconForTab(tab)}</span>
+                    <span className="grid size-4 place-items-center text-nomi-ink-40"><TabFavicon tab={tab} /></span>
                     <span className="min-w-0 truncate text-caption font-medium">
                       {tab.loading ? '加载中...' : tab.title}
                     </span>

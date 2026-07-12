@@ -425,25 +425,38 @@ export function BrowserAssetOverlayApp(): JSX.Element {
       if (!projectId) throw new Error('projectId is required')
       const viewId = config.viewId
       const fallbackTitle = input.title || input.fileName || (input.mediaType === 'video' ? '网页视频' : '网页图片')
-      if (viewId && browserBridge?.importMedia && canDownloadFromBrowserView(input.url)) {
-        const asset = await browserBridge.importMedia({
-          viewId,
+      // 直连拉取兜底：会话下载(带 cookie/Referer,能过防盗链)失败时退这条，别直接判「下载失败」。
+      const importViaRemoteUrl = async (): Promise<NomiBrowserAsset> => {
+        const asset = await desktop?.assets.importRemoteUrl({
           projectId,
           url: input.url,
+          kind: 'browser-capture',
           fileName: input.fileName,
-          title: input.title,
-          mediaType: input.mediaType,
         })
+        if (!asset) throw new Error('素材导入通道不可用')
         return browserAssetFromDesktopAsset(asset, fallbackTitle)
       }
-      const asset = await desktop?.assets.importRemoteUrl({
-        projectId,
-        url: input.url,
-        kind: 'browser-capture',
-        fileName: input.fileName,
-      })
-      if (!asset) throw new Error('desktop asset import is unavailable')
-      return browserAssetFromDesktopAsset(asset, fallbackTitle)
+      if (viewId && browserBridge?.importMedia && canDownloadFromBrowserView(input.url)) {
+        try {
+          const asset = await browserBridge.importMedia({
+            viewId,
+            projectId,
+            url: input.url,
+            fileName: input.fileName,
+            title: input.title,
+            mediaType: input.mediaType,
+          })
+          return browserAssetFromDesktopAsset(asset, fallbackTitle)
+        } catch (sessionError) {
+          // 会话下载失败(防盗链头不够/内容类型/blob 跨界)→ 退直连拉取；两条都失败才抛真实原因。
+          try {
+            return await importViaRemoteUrl()
+          } catch {
+            throw sessionError instanceof Error ? sessionError : new Error(String(sessionError))
+          }
+        }
+      }
+      return importViaRemoteUrl()
     },
     [browserBridge, config.viewId, desktop?.assets],
   )
