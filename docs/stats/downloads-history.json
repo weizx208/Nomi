@@ -1180,6 +1180,16 @@
         "macIntel": 0
       },
       "byVersion": {}
+    },
+    {
+      "date": "2026-07-30",
+      "total": 0,
+      "byPlatform": {
+        "windows": 0,
+        "macArm": 0,
+        "macIntel": 0
+      },
+      "byVersion": {}
     }
   ]
 }
